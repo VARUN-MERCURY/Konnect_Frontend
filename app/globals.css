@@ -1,0 +1,317 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-lg
+           text-gray-900 placeholder-gray-500 
+           transition-all duration-200 ease-in-out
+           focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 focus:outline-none
+           hover:border-gray-300;
+  }
+
+  .input-field.error {
+    @apply border-red-300 focus:border-red-500 focus:ring-red-500/20;
+  }
+
+  .btn-primary {
+    @apply w-full inline-flex items-center justify-center px-6 py-3 
+           bg-indigo-600 text-white font-medium rounded-lg
+           transition-all duration-200 ease-in-out
+           hover:bg-indigo-700 hover:shadow-lg hover:-translate-y-0.5
+           focus:outline-none focus:ring-4 focus:ring-indigo-500/50
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+           shadow-md hover:shadow-xl;
+  }
+
+  .btn-secondary {
+    @apply w-full inline-flex items-center justify-center px-6 py-3
+           bg-gray-100 text-gray-900 font-medium rounded-lg border border-gray-300
+           transition-all duration-200 ease-in-out
+           hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5
+           focus:outline-none focus:ring-4 focus:ring-gray-500/20
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
+  }
+
+  .form-label {
+    @apply block text-sm font-medium text-gray-700 mb-2;
+  }
+
+  .auth-link {
+    @apply text-indigo-600 font-medium hover:text-indigo-500 transition-colors duration-200;
+  }
+
+  .spinner {
+    @apply animate-spin rounded-full h-4 w-4 border-b-2 border-white ml-2;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in forwards;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.4rem;
+}
+
+input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input::placeholder { color: var(--text-muted); opacity: 0.6; }
+
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+input.invalid {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px rgba(255, 92, 122, 0.2);
+}
+
+/* ─── Password Wrap ─────────────────────────────────────────────── */
+.passwordWrap { position: relative; }
+.passwordWrap input { padding-right: 2.8rem; }
+
+.togglePw {
+  position: absolute;
+  right: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: 0.55;
+  transition: opacity 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+.togglePw:hover { opacity: 1; }
+
+/* ─── OTP Input ─────────────────────────────────────────────────── */
+.otpInput {
+  text-align: center;
+  font-size: 2rem;
+  letter-spacing: 0.6rem;
+  font-weight: 700;
+  padding: 0.8rem 1rem;
+}
+
+/* ─── Buttons ───────────────────────────────────────────────────── */
+.btnPrimary {
+  display: block;
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.72rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  margin-top: 1.4rem;
+  position: relative;
+}
+
+.btnPrimary:hover { background: var(--accent-hover); box-shadow: 0 4px 16px var(--accent-glow); }
+.btnPrimary:active { transform: scale(0.98); }
+.btnPrimary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+.btnGhost {
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.68rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  margin-top: 0.75rem;
+}
+.btnGhost:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* ─── Spinner ───────────────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Messages ──────────────────────────────────────────────────── */
+.error {
+  background: rgba(255, 92, 122, 0.12);
+  color: var(--error);
+  border: 1px solid rgba(255, 92, 122, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  margin-top: 0.9rem;
+  font-weight: 500;
+}
+
+.success {
+  background: rgba(76, 175, 130, 0.12);
+  color: var(--success);
+  border: 1px solid rgba(76, 175, 130, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  margin-top: 0.9rem;
+  font-weight: 500;
+}
+
+/* ─── Switch Link ───────────────────────────────────────────────── */
+.switchText {
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-top: 1.5rem;
+}
+.switchText a { color: var(--accent); font-weight: 600; }
+.switchText a:hover { text-decoration: underline; }
+
+/* ─── Dashboard ─────────────────────────────────────────────────── */
+.dashLayout { display: flex; flex-direction: column; min-height: 100vh; }
+
+.dashHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.dashHeaderLogo {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #a78bfa;
+}
+
+.dashBody {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.welcomeCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2.5rem 2rem;
+  width: 100%;
+  max-width: 520px;
+  text-align: center;
+  box-shadow: var(--shadow);
+  animation: fadeIn 0.25s ease;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6c63ff, #a78bfa);
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 1rem;
+}
+
+.welcomeCard h2 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
+
+.tokenLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.tokenBox {
+  display: block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.72rem;
+  color: #a78bfa;
+  word-break: break-all;
+  text-align: left;
+}
+
+@media (max-width: 480px) {
+  .card { padding: 2rem 1.25rem; }
+  .dashHeader { padding: 0.75rem 1rem; }
+}
