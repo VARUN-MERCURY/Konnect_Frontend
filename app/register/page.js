@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
@@ -74,6 +75,12 @@ export default function RegisterPage() {
     if (!name.trim()) {
       return setError('Please enter your full name.');
     }
+    if (username.trim().length < 3) {
+      return setError('Username must be at least 3 characters.');
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
+      return setError('Username can only contain letters, numbers, and underscores.');
+    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return setError('Please enter a valid email address.');
     }
@@ -87,7 +94,8 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const { ok, data } = await authPost('/auth/register', { 
-        name: name.trim(), 
+        name: name.trim(),
+        username: username.trim(),
         email, 
         password 
       });
@@ -158,6 +166,24 @@ export default function RegisterPage() {
               placeholder="Enter your full name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          {/* Username Field */}
+          <div className="space-y-2">
+            <label htmlFor="username" className="form-label">
+              Username
+            </label>
+            <input
+              id="username"
+              type="text"
+              autoComplete="username"
+              required
+              className={`input-field ${error && !username.trim() ? 'error' : ''}`}
+              placeholder="Choose a username (letters, numbers, _)"
+              maxLength={30}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
           </div>
 

@@ -96,8 +96,15 @@ export default function VerifyOtpPage() {
         // Clean up pending data
         sessionStorage.removeItem('pendingEmail');
         sessionStorage.removeItem('pendingFlow');
-        
-        router.push('/whatsapp');
+
+        // Redirect to pending invite link if present, otherwise to chat
+        const pendingInvite = sessionStorage.getItem('pendingInviteCode');
+        if (pendingInvite) {
+          sessionStorage.removeItem('pendingInviteCode');
+          router.push(`/join/${pendingInvite}`);
+        } else {
+          router.push('/whatsapp');
+        }
       } else if (status === 429) {
         setError(data.message || 'Too many attempts. Please try again later.');
       } else if (status === 401) {

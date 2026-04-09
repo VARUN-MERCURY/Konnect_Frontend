@@ -10,6 +10,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        dk: {
+          base:     '#13111C',
+          surface:  '#1D1B2E',
+          elevated: '#252341',
+          border:   '#302D50',
+          text:     '#E2DEFF',
+          muted:    '#8A84A3',
+          active:   '#2D2847',
+          accent:   '#7C3AED',
+          'accent-hover': '#6D28D9',
+        },
         gray: {
           50: '#f9fafb',
           100: '#f3f4f6',
