@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated, getAccessToken, getConversations, getCurrentUser, authenticatedRequest, getMessages, leaveGroup } from '@/lib/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import { isAuthenticated, getAccessToken, getConversations, getCurrentUser, authenticatedRequest, getMessages, leaveGroup, getModerationStats } from '@/lib/api';
+import ModerationDashboard from '@/components/ModerationDashboard';
+import StarsBackground from '@/components/StarsBackground';
 import { useWebSocket } from '@/lib/websocket';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import ProfileModal from '@/components/ProfileModal';
@@ -28,6 +31,11 @@ export default function ChatPage() {
     clearMuteInfo,
     groupOnlineMembers,
     getGroupOnlineMembers,
+    groupSentiment,
+    moderationAlert,
+    clearModerationAlert,
+    groupLocked,
+    flaggedMessages,
     sendMessage, 
     joinConversation,
     leaveConversation,
@@ -52,6 +60,9 @@ export default function ChatPage() {
   const [showJoinGroup, setShowJoinGroup] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const [showModerationDashboard, setShowModerationDashboard] = useState(false);
+  const [moderationToast, setModerationToast] = useState(null);
+  const [revealedMessages, setRevealedMessages] = useState({}); // { [messageId]: true }
   
   // Chat data and loading states
   const [conversations, setConversations] = useState([]);
@@ -71,6 +82,10 @@ export default function ChatPage() {
   const messagesContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const prevChatIdRef = useRef(null);
+  const inputRef = useRef(null);
+  const [flying, setFlying] = useState([]); // [{ id, text, fromRect, toRect }]
+  // Increment to trigger a meteor-shower burst in StarsBackground
+  const [meteorKey, setMeteorKey] = useState(0);
 
   const HISTORY_LIMIT = 30;
 
@@ -131,6 +146,15 @@ export default function ChatPage() {
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [selectedChat?.id, muteInfo]);
+
+  // Moderation toast from WebSocket alerts
+  useEffect(() => {
+    if (!moderationAlert) return;
+    const labels = { flagged: '⚠️ Toxic message flagged', locked: '🔒 Group locked by moderation', unlocked: '🔓 Group unlocked', reset: '🔄 Moderation window reset' };
+    setModerationToast(labels[moderationAlert.type] || 'Moderation event');
+    const timer = setTimeout(() => { setModerationToast(null); clearModerationAlert(); }, 4000);
+    return () => clearTimeout(timer);
+  }, [moderationAlert]);
 
   // Fetch a page of history for the current conversation
   const fetchHistory = useCallback(async (convId, page, prepend = false) => {
@@ -275,7 +299,13 @@ export default function ChatPage() {
         }));
         
         setConversations(transformedConversations);
-        
+
+        // Subscribe to ALL conversation rooms so we receive realtime updates
+        // (sidebar previews, unread bumps, message:new) for inactive chats too.
+        if (connected) {
+          transformedConversations.forEach(c => joinConversation(c.id));
+        }
+
         // If no conversations exist, show empty state (don't create fake ones)
         if (transformedConversations.length === 0) {
           console.log('No conversations found - user can create new ones');
@@ -383,6 +413,13 @@ export default function ChatPage() {
     }
   }, [selectedChat, connected, joinConversation]);
 
+  // Re-join every conversation room whenever the socket (re)connects, so background
+  // messages keep arriving even after a reconnect.
+  useEffect(() => {
+    if (!connected || conversations.length === 0) return;
+    conversations.forEach(c => joinConversation(c.id));
+  }, [connected, conversations, joinConversation]);
+
   // Load message history when conversation is selected for the first time
   useEffect(() => {
     if (!selectedChat) return;
@@ -408,7 +445,8 @@ export default function ChatPage() {
       }
       requestAnimationFrame(() => scrollToBottom('instant'));
     }
-    clearMessages();
+    // NOTE: Do NOT call clearMessages() here. We keep the global realtime queue alive
+    // so background messages for OTHER conversations still update the sidebar/unread.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedChat?.id]);
 
@@ -419,17 +457,17 @@ export default function ChatPage() {
   useEffect(() => {
     if (!connected) return;
 
-    // Leave previous conversation room
-    if (prevChatIdRef.current && prevChatIdRef.current !== selectedChat?.id) {
-      leaveConversation(prevChatIdRef.current);
-    }
+    // NOTE: We intentionally do NOT leave the previous conversation room.
+    // Staying joined to all rooms is what allows background messages to update the
+    // sidebar (last-message preview + unread count) and arrive instantly when the
+    // user opens that chat — without needing a hard reload.
 
     if (!selectedChat) {
       prevChatIdRef.current = null;
       return;
     }
 
-    // Join new conversation room (needed to receive typing events)
+    // (Re-)join the selected room defensively in case it wasn't joined yet.
     joinConversation(selectedChat.id);
     prevChatIdRef.current = selectedChat.id;
 
@@ -442,7 +480,7 @@ export default function ChatPage() {
     if (selectedChat.type === 'group' && selectedChat.participantIds?.length) {
       getGroupOnlineMembers(selectedChat.participantIds);
     }
-  }, [selectedChat?.id, connected, joinConversation, leaveConversation, checkOnline, getGroupOnlineMembers]);
+  }, [selectedChat?.id, connected, joinConversation, checkOnline, getGroupOnlineMembers]);
 
   // Re-fetch group online members when someone comes online/offline
   useEffect(() => {
@@ -455,17 +493,21 @@ export default function ChatPage() {
   // Handle message send
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!messageInput.trim() || !connected || !selectedChat) return;
+    const text = messageInput.trim();
+    if (!text || !connected || !selectedChat) return;
 
-    sendMessage(selectedChat.id, messageInput.trim());
+    sendMessage(selectedChat.id, text);
     setMessageInput('');
     handleStopTyping();
 
+    // Fire a meteor-shower burst across the chat background
+    setMeteorKey((k) => k + 1);
+
     // Update last message in conversation
-    setConversations(prev => 
-      prev.map(conv => 
-        conv.id === selectedChat.id 
-          ? { ...conv, lastMessage: messageInput.trim(), lastTime: new Date().toISOString() }
+    setConversations(prev =>
+      prev.map(conv =>
+        conv.id === selectedChat.id
+          ? { ...conv, lastMessage: text, lastTime: new Date().toISOString() }
           : conv
       )
     );
@@ -689,20 +731,20 @@ export default function ChatPage() {
         onGroupCreated={handleCreateGroupDone}
       />
 
-      <div className="h-screen flex overflow-hidden" style={{ background: '#13111C' }}>
+      <div className="h-screen flex overflow-hidden" style={{ background: '#06040f' }}>
         {/* Left Sidebar - Chat List */}
-        <div className="w-80 flex flex-col border-r" style={{ background: '#1D1B2E', borderColor: '#302D50' }}>
+        <div className="w-80 flex flex-col border-r" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
           {/* Header */}
-          <div className="px-4 py-3 border-b" style={{ background: '#1D1B2E', borderColor: '#302D50' }}>
+          <div className="px-4 py-3 border-b" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
-                     style={{ background: 'linear-gradient(135deg, #7C3AED, #a855f7)' }}
+                     style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}
                      onClick={() => setShowProfile(!showProfile)}>
                   <span className="text-white font-semibold text-sm">{userInitial}</span>
                 </div>
                 <div>
-                  <h2 className="font-semibold" style={{ color: '#E2DEFF' }}>{username}</h2>
+                  <h2 className="font-semibold" style={{ color: '#ffffff' }}>{username}</h2>
                   <div className="flex items-center space-x-1">
                     <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`}></div>
                     <span className="text-xs" style={{ color: '#8A84A3' }}>{connected ? 'Connected' : 'Offline'}</span>
@@ -715,7 +757,7 @@ export default function ChatPage() {
                 <div className="relative">
                   <button
                     onClick={() => setShowGroupMenu(prev => !prev)}
-                    className="p-2 rounded-full transition-colors hover:bg-[#2D2847]"
+                    className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
                     title="New"
                   >
                     <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -725,10 +767,10 @@ export default function ChatPage() {
                   {showGroupMenu && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setShowGroupMenu(false)} />
-                      <div className="absolute right-0 mt-1 w-44 rounded-xl shadow-lg z-20 overflow-hidden border" style={{ background: '#252341', borderColor: '#302D50' }}>
+                      <div className="absolute right-0 mt-1 w-44 rounded-xl shadow-lg z-20 overflow-hidden border" style={{ background: '#15102b', borderColor: '#362A60' }}>
                         <button
-                          className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-[#2D2847] transition-colors"
-                          style={{ color: '#E2DEFF' }}
+                          className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-[#1c1538] transition-colors"
+                          style={{ color: '#ffffff' }}
                           onClick={() => { setShowAddContact(true); setShowGroupMenu(false); }}
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -737,8 +779,8 @@ export default function ChatPage() {
                           Add Contact
                         </button>
                         <button
-                          className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-[#2D2847] transition-colors"
-                          style={{ color: '#E2DEFF' }}
+                          className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-[#1c1538] transition-colors"
+                          style={{ color: '#ffffff' }}
                           onClick={() => { setShowCreateGroup(true); setShowGroupMenu(false); }}
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -747,8 +789,8 @@ export default function ChatPage() {
                           Create Group
                         </button>
                         <button
-                          className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-[#2D2847] transition-colors"
-                          style={{ color: '#E2DEFF' }}
+                          className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 hover:bg-[#1c1538] transition-colors"
+                          style={{ color: '#ffffff' }}
                           onClick={() => { setShowJoinGroup(true); setShowGroupMenu(false); }}
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -762,7 +804,7 @@ export default function ChatPage() {
                 </div>
                 <button 
                   onClick={() => setShowSettings(!showSettings)}
-                  className="p-2 rounded-full transition-colors hover:bg-[#2D2847]"
+                  className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
                   title="Settings"
                 >
                   <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -772,7 +814,7 @@ export default function ChatPage() {
                 </button>
                 <button 
                   onClick={() => router.push('/dashboard')}
-                  className="p-2 rounded-full transition-colors hover:bg-[#2D2847]"
+                  className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
                   title="Back to Dashboard"
                 >
                   <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -784,7 +826,7 @@ export default function ChatPage() {
           </div>
 
           {/* Search */}
-          <div className="px-4 py-3 border-b" style={{ borderColor: '#302D50' }}>
+          <div className="px-4 py-3 border-b" style={{ borderColor: '#362A60' }}>
             <div className="relative">
               <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -795,7 +837,7 @@ export default function ChatPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                style={{ background: '#252341', border: '1px solid #302D50', color: '#E2DEFF' }}
+                style={{ background: '#15102b', border: '1px solid #362A60', color: '#ffffff' }}
               />
             </div>
           </div>
@@ -807,13 +849,13 @@ export default function ChatPage() {
                 <div className="space-y-3">
                   {[...Array(6)].map((_, i) => (
                     <div key={i} className="animate-pulse flex items-center space-x-3 p-3">
-                      <div className="w-12 h-12 rounded-full" style={{ background: '#252341' }}></div>
+                      <div className="w-12 h-12 rounded-full" style={{ background: '#15102b' }}></div>
                       <div className="flex-1 space-y-2">
                         <div className="flex justify-between">
-                          <div className="h-4 rounded w-1/3" style={{ background: '#252341' }}></div>
-                          <div className="h-3 rounded w-12" style={{ background: '#252341' }}></div>
+                          <div className="h-4 rounded w-1/3" style={{ background: '#15102b' }}></div>
+                          <div className="h-3 rounded w-12" style={{ background: '#15102b' }}></div>
                         </div>
-                        <div className="h-3 rounded w-2/3" style={{ background: '#252341' }}></div>
+                        <div className="h-3 rounded w-2/3" style={{ background: '#15102b' }}></div>
                       </div>
                     </div>
                   ))}
@@ -834,30 +876,30 @@ export default function ChatPage() {
                 <button 
                   onClick={() => window.location.reload()}
                   className="px-4 py-2 text-white rounded-lg transition-colors"
-                  style={{ background: '#7C3AED' }}
+                  style={{ background: '#9668F5' }}
                 >
                   Try Again
                 </button>
               </div>
             ) : filteredConversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-                <svg className="w-16 h-16 mb-4" style={{ color: '#302D50' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-16 h-16 mb-4" style={{ color: '#362A60' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
-                <h3 className="text-lg font-semibold mb-2" style={{ color: '#E2DEFF' }}>No conversations yet</h3>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: '#ffffff' }}>No conversations yet</h3>
                 <p className="mb-6" style={{ color: '#8A84A3' }}>Start chatting by adding contacts or joining groups!</p>
                 <div className="flex space-x-3">
                   <button 
                     onClick={() => setShowAddContact(true)}
                     className="px-4 py-2 text-white rounded-lg transition-colors"
-                    style={{ background: '#7C3AED' }}
+                    style={{ background: '#9668F5' }}
                   >
                     Add Contact
                   </button>
                   <button 
                     onClick={() => setShowJoinGroup(true)}
                     className="px-4 py-2 rounded-lg transition-colors"
-                    style={{ border: '1px solid #302D50', color: '#E2DEFF' }}
+                    style={{ border: '1px solid #362A60', color: '#ffffff' }}
                   >
                     Join Group
                   </button>
@@ -870,27 +912,27 @@ export default function ChatPage() {
                   onClick={() => setSelectedChat(conversation)}
                   className="px-4 py-3 cursor-pointer transition-colors border-b"
                   style={{
-                    borderColor: '#302D50',
-                    background: selectedChat?.id === conversation.id ? '#2D2847' : 'transparent',
-                    borderLeft: selectedChat?.id === conversation.id ? '3px solid #7C3AED' : '3px solid transparent',
+                    borderColor: '#362A60',
+                    background: selectedChat?.id === conversation.id ? '#1c1538' : 'transparent',
+                    borderLeft: selectedChat?.id === conversation.id ? '3px solid #9668F5' : '3px solid transparent',
                   }}
-                  onMouseEnter={e => { if (selectedChat?.id !== conversation.id) e.currentTarget.style.background = '#252341'; }}
+                  onMouseEnter={e => { if (selectedChat?.id !== conversation.id) e.currentTarget.style.background = '#15102b'; }}
                   onMouseLeave={e => { if (selectedChat?.id !== conversation.id) e.currentTarget.style.background = 'transparent'; }}
                 >
                   <div className="flex items-center space-x-3">
                     <div className="relative flex-shrink-0">
                       <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-semibold"
-                           style={{ background: 'linear-gradient(135deg, #7C3AED, #a855f7)' }}>
+                           style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}>
                         {conversation.avatar}
                       </div>
                       {conversation.online && (
-                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-400 border-2 rounded-full" style={{ borderColor: '#1D1B2E' }}></div>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-400 border-2 rounded-full" style={{ borderColor: '#0d0b1a' }}></div>
                       )}
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <h3 className="font-semibold truncate" style={{ color: '#E2DEFF' }}>{conversation.name}</h3>
+                        <h3 className="font-semibold truncate" style={{ color: '#ffffff' }}>{conversation.name}</h3>
                         <div className="flex items-center space-x-1 ml-2 flex-shrink-0">
                           <span className="text-xs" style={{ color: '#8A84A3' }}>{formatTime(conversation.lastTime)}</span>
                           {conversation.unread > 0 && (
@@ -920,17 +962,17 @@ export default function ChatPage() {
 
         {/* Main Chat Area */}
         {selectedChat ? (
-          <div className="flex-1 flex flex-col" style={{ background: '#13111C' }}>
+          <div className="flex-1 flex flex-col" style={{ background: '#06040f' }}>
             {/* Chat Header */}
-            <div className="px-6 py-4 border-b" style={{ background: '#1D1B2E', borderColor: '#302D50' }}>
+            <div className="px-6 py-4 border-b" style={{ background: 'linear-gradient(180deg, rgba(150,104,245,0.18) 0%, rgba(110,79,239,0.10) 50%, rgba(13,11,26,0.95) 100%)', borderColor: '#362A60', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-semibold"
-                       style={{ background: 'linear-gradient(135deg, #7C3AED, #a855f7)' }}>
+                       style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}>
                     {selectedChat.avatar}
                   </div>
                   <div>
-                    <h2 className="font-semibold" style={{ color: '#E2DEFF' }}>{selectedChat.name}</h2>
+                    <h2 className="font-semibold" style={{ color: '#ffffff' }}>{selectedChat.name}</h2>
                     <div className="flex items-center space-x-2 text-sm" style={{ color: '#8A84A3' }}>
                       {selectedChat.isBanned ? (
                         <span className="text-red-400 font-medium">Banned</span>
@@ -939,6 +981,26 @@ export default function ChatPage() {
                           <span>{selectedChat.participants} participants</span>
                           <span>•</span>
                           <span>{groupOnlineMembers.length} online</span>
+                          {/* Sentiment mood indicator */}
+                          {groupSentiment[selectedChat.id] && (() => {
+                            const s = groupSentiment[selectedChat.id];
+                            const moodEmoji = { positive: '😊', negative: '😠', neutral: '😐', mixed: '🤔' };
+                            const statusColor = { normal: '#22c55e', warning: '#eab308', notify_moderator: '#f97316', auto_lock: '#ef4444' };
+                            return (
+                              <>
+                                <span>•</span>
+                                <span title={`Mood: ${s.mood} | Status: ${s.status}`}>{moodEmoji[s.mood] || '😐'}</span>
+                                <div className="flex items-center space-x-1" title={`Toxicity: ${Math.round((s.avg_toxicity || 0) * 100)}%`}>
+                                  <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: '#362A60' }}>
+                                    <div className="h-full rounded-full transition-all duration-500" style={{
+                                      width: `${Math.round((s.avg_toxicity || 0) * 100)}%`,
+                                      background: statusColor[s.status] || '#22c55e'
+                                    }} />
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </>
                       ) : (() => {
                         const status = onlineStatus[selectedChat.otherUserId];
@@ -946,28 +1008,33 @@ export default function ChatPage() {
                         if (status?.lastSeen) return <span>{formatLastSeen(status.lastSeen)}</span>;
                         return <span>last seen recently</span>;
                       })()}
-                      {!selectedChat.isBanned && Array.from(typing).some(k => k.startsWith(`${selectedChat.id}:`)) && (
-                        <>
-                          <span>•</span>
-                          <span style={{ color: '#a78bfa' }}>typing...</span>
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
                 
                 <div className="flex items-center space-x-2">
                   {!selectedChat.isBanned && (
-                    <button className="p-2 rounded-full transition-colors hover:bg-[#2D2847]">
+                    <button className="p-2 rounded-full transition-colors hover:bg-[#1c1538]">
                       <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </button>
+                  )}
+                  {selectedChat?.type === 'group' && !selectedChat.isBanned && ['moderator','admin','owner'].includes(selectedChat.userRole) && (
+                    <button 
+                      onClick={() => setShowModerationDashboard(true)}
+                      className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
+                      title="Moderation Dashboard"
+                    >
+                      <svg className="w-5 h-5" style={{ color: groupSentiment[selectedChat.id]?.status === 'auto_lock' ? '#ef4444' : groupSentiment[selectedChat.id]?.status === 'warning' ? '#eab308' : '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                     </button>
                   )}
                   {selectedChat?.type === 'group' && !selectedChat.isBanned && (
                     <button 
                       onClick={() => setShowGroupInfo(true)}
-                      className="p-2 rounded-full transition-colors hover:bg-[#2D2847]"
+                      className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
                       title="Group Info"
                     >
                       <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -978,7 +1045,7 @@ export default function ChatPage() {
                   <div className="relative">
                     <button
                       onClick={() => setShowGroupMenu(prev => !prev)}
-                      className="p-2 rounded-full transition-colors hover:bg-[#2D2847]"
+                      className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
                     >
                       <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -986,7 +1053,7 @@ export default function ChatPage() {
                     </button>
                     {showGroupMenu && (
                       <div className="absolute right-0 top-10 w-48 rounded-xl shadow-lg border py-1 z-50"
-                           style={{ background: '#1D1B2E', borderColor: '#302D50' }}>
+                           style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
                         {selectedChat.type === 'group' && !selectedChat.isBanned && (
                           <button
                             onClick={async () => {
@@ -1000,7 +1067,7 @@ export default function ChatPage() {
                                 console.error('Error leaving group:', err);
                               }
                             }}
-                            className="w-full text-left px-4 py-2 text-sm hover:bg-[#252341] transition-colors"
+                            className="w-full text-left px-4 py-2 text-sm hover:bg-[#15102b] transition-colors"
                             style={{ color: '#f87171' }}
                           >
                             🚪 Leave Group
@@ -1012,7 +1079,7 @@ export default function ChatPage() {
                             setConversations(prev => prev.filter(c => c.id !== selectedChat.id));
                             setSelectedChat(null);
                           }}
-                          className="w-full text-left px-4 py-2 text-sm hover:bg-[#252341] transition-colors"
+                          className="w-full text-left px-4 py-2 text-sm hover:bg-[#15102b] transition-colors"
                           style={{ color: '#f87171' }}
                         >
                           🗑️ Delete Chat
@@ -1026,15 +1093,15 @@ export default function ChatPage() {
 
             {/* Banned Overlay — replaces messages + input for banned users */}
             {selectedChat.isBanned ? (
-              <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#13111C' }}>
+              <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#06040f' }}>
                 <div className="text-center max-w-md px-6">
                   <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
-                       style={{ background: '#252341' }}>
+                       style={{ background: '#15102b' }}>
                     <span className="text-4xl">🚫</span>
                   </div>
                   <h3 className="text-xl font-semibold mb-2" style={{ color: '#f87171' }}>You are banned from this group</h3>
                   <p className="mb-6" style={{ color: '#8A84A3' }}>
-                    You can no longer send or receive messages in <strong style={{ color: '#E2DEFF' }}>{selectedChat.name}</strong>.
+                    You can no longer send or receive messages in <strong style={{ color: '#ffffff' }}>{selectedChat.name}</strong>.
                   </p>
                   <button
                     onClick={() => {
@@ -1050,12 +1117,17 @@ export default function ChatPage() {
               </div>
             ) : (
             <>
-            {/* Messages Area */}
-            <div
-              ref={messagesContainerRef}
-              onScroll={handleMessagesScroll}
-              className="flex-1 overflow-y-auto px-6 py-4 space-y-4"
-              style={{ background: '#13111C' }}>
+            {/* Messages Area — wrapped in a relative container so the
+                StarsBackground sits behind the scrolling list and never
+                scrolls away or disappears on resize. */}
+            <div className="flex-1 relative overflow-hidden" style={{ background: '#06040f' }}>
+              <StarsBackground density={70} meteorTrigger={meteorKey} />
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleMessagesScroll}
+                className="absolute inset-0 overflow-y-auto px-6 py-4 pb-16 space-y-4"
+                style={{ zIndex: 1 }}>
+              <div className="relative">
               {loadingHistory && (
                 <div className="flex justify-center py-2">
                   <div className="w-5 h-5 border-2 border-violet-700 border-t-violet-400 rounded-full animate-spin" />
@@ -1071,7 +1143,7 @@ export default function ChatPage() {
                 // Dedup realtimeOnly: skip messages already in history AND deduplicate by _id within realtime
                 const seenRealtime = new Set();
                 const realtimeOnly = messages.filter(m => {
-                  if (m.conversationId !== selectedChat.id) return false;
+                  if (m.conversationId?.toString() !== selectedChat.id?.toString()) return false;
                   if (m._id) {
                     if (historyIds.has(m._id)) return false;
                     if (seenRealtime.has(m._id)) return false;
@@ -1085,10 +1157,10 @@ export default function ChatPage() {
                   return (
                     <div className="flex flex-col items-center justify-center h-full text-center">
                       <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
-                           style={{ background: '#252341' }}>
+                           style={{ background: '#15102b' }}>
                         <div className="text-3xl">{selectedChat.avatar}</div>
                       </div>
-                      <h3 className="text-xl font-semibold mb-2" style={{ color: '#E2DEFF' }}>Welcome to {selectedChat.name}!</h3>
+                      <h3 className="text-xl font-semibold mb-2" style={{ color: '#ffffff' }}>Welcome to {selectedChat.name}!</h3>
                       <p className="max-w-md" style={{ color: '#8A84A3' }}>
                         {selectedChat.type === 'group'
                           ? `Start chatting with ${selectedChat.participants} participants in this group.`
@@ -1104,7 +1176,7 @@ export default function ChatPage() {
                   if (message.messageType === 'system') {
                     return (
                       <div key={message._id || message.tempId || index} className="flex justify-center my-2">
-                        <div className="px-4 py-1.5 rounded-full text-xs" style={{ background: '#252341', color: '#8A84A3' }}>
+                        <div className="px-4 py-1.5 rounded-full text-xs" style={{ background: '#15102b', color: '#8A84A3' }}>
                           {message.content}
                         </div>
                       </div>
@@ -1118,15 +1190,21 @@ export default function ChatPage() {
                     message.senderId?.toString() === currentUser?._id?.toString();
                   const senderName = message.senderId?.name || message.senderInfo?.name || message.sender?.username || 'Unknown';
                   const showAvatar = !isMyMessage && (index === 0 || allMessages[index - 1]?.senderId?._id?.toString() !== message.senderId?._id?.toString());
+                  const msgId = (message._id || message.messageId)?.toString();
+                  const isFlagged = msgId && flaggedMessages[msgId];
+                  const isRevealed = msgId && revealedMessages[msgId];
 
                   return (
-                    <div key={message._id || message.tempId || index}
+                    <motion.div key={message._id || message.tempId || index}
+                         initial={isMyMessage ? { opacity: 0, y: 4 } : false}
+                         animate={{ opacity: 1, y: 0 }}
+                         transition={{ duration: 0.28, ease: 'easeOut' }}
                          className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'} ${showAvatar ? 'mt-4' : 'mt-1'}`}>
                       {!isMyMessage && (
                         <div className={`w-8 h-8 mr-2 ${showAvatar ? '' : 'opacity-0'}`}>
                           {showAvatar && (
                             <div className="w-8 h-8 rounded-full flex items-center justify-center"
-                                 style={{ background: 'linear-gradient(135deg, #4c1d95, #7C3AED)' }}>
+                                 style={{ background: 'linear-gradient(135deg, #4c1d95, #9668F5)' }}>
                               <span className="text-white text-xs font-medium">
                                 {senderName[0]?.toUpperCase() || 'U'}
                               </span>
@@ -1136,18 +1214,65 @@ export default function ChatPage() {
                       )}
                       <div className={`max-w-md group ${isMyMessage ? 'items-end' : 'items-start'} flex flex-col`}>
                         {!isMyMessage && showAvatar && selectedChat.type === 'group' && (
-                          <div className="text-xs font-medium mb-1 px-1" style={{ color: '#a78bfa' }}>{senderName}</div>
+                          <div className="text-xs font-medium mb-1 px-1" style={{ color: '#c4a8ff' }}>{senderName}</div>
                         )}
-                        <div className="px-4 py-2 relative"
+                        {isFlagged && !isRevealed ? (
+                          /* Flagged message — hidden until clicked */
+                          <div
+                            className="px-4 py-2 cursor-pointer select-none transition-all hover:opacity-80"
+                            style={{
+                              background: '#3b1c1c',
+                              border: '1px solid #7f1d1d',
+                              borderRadius: isMyMessage ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                            }}
+                            onClick={() => setRevealedMessages(prev => ({ ...prev, [msgId]: true }))}
+                            title="Click to reveal flagged message"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <span className="text-base">⚠️</span>
+                              <div>
+                                <div className="text-sm font-medium" style={{ color: '#fca5a5' }}>Flagged as toxic</div>
+                                <div className="text-xs" style={{ color: '#8A84A3' }}>Click to reveal message</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-end mt-1 text-xs" style={{ color: '#8A84A3' }}>
+                              <span>{formatMessageTime(message.timestamp || message.createdAt)}</span>
+                            </div>
+                          </div>
+                        ) : (
+                        <div className="px-4 py-2 relative backdrop-blur-xl"
                              style={isMyMessage ? {
-                               background: 'linear-gradient(135deg, #7C3AED, #a855f7)',
+                               background: 'linear-gradient(135deg, rgba(150,104,245,0.78), rgba(110,79,239,0.62))',
                                color: '#fff',
                                borderRadius: '18px 18px 4px 18px',
+                               border: '1px solid rgba(255,255,255,0.28)',
+                               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(0,0,0,0.15), 0 10px 30px -8px rgba(110,79,239,0.7), 0 0 32px -8px rgba(150,104,245,0.6)',
+                               WebkitBackdropFilter: 'blur(24px) saturate(200%)',
                              } : {
-                               background: '#252341',
-                               color: '#E2DEFF',
+                               background: isFlagged
+                                 ? 'linear-gradient(135deg, rgba(127,29,29,0.45), rgba(42,21,37,0.55))'
+                                 : 'linear-gradient(135deg, rgba(255,255,255,0.14), rgba(150,104,245,0.16))',
+                               color: '#ffffff',
                                borderRadius: '18px 18px 18px 4px',
+                               border: isFlagged
+                                 ? '1px solid rgba(127,29,29,0.7)'
+                                 : '1px solid rgba(255,255,255,0.22)',
+                               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25), inset 0 -1px 0 rgba(0,0,0,0.2), 0 8px 24px -8px rgba(0,0,0,0.7), 0 0 24px -10px rgba(150,104,245,0.35)',
+                               WebkitBackdropFilter: 'blur(24px) saturate(200%)',
                              }}>
+                          {isFlagged && (
+                            <div className="flex items-center space-x-1 mb-1">
+                              <span className="text-xs">⚠️</span>
+                              <span className="text-xs font-medium" style={{ color: '#f87171' }}>Flagged</span>
+                              <button
+                                className="ml-auto text-xs hover:underline"
+                                style={{ color: '#8A84A3' }}
+                                onClick={() => setRevealedMessages(prev => { const n = { ...prev }; delete n[msgId]; return n; })}
+                              >
+                                Hide
+                              </button>
+                            </div>
+                          )}
                           <div className="text-sm leading-relaxed">{message.content}</div>
                           <div className="flex items-center justify-end space-x-1 mt-1 text-xs"
                                style={{ color: isMyMessage ? 'rgba(255,255,255,0.6)' : '#8A84A3' }}>
@@ -1155,18 +1280,87 @@ export default function ChatPage() {
                             {isMyMessage && getStatusIcon(message.status)}
                           </div>
                         </div>
+                        )}
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 });
               })()}
+              {/* end of messages list */}
               <div ref={messagesEndRef} />
-            </div>
+              </div>{/* /relative content wrapper above stars */}
+              </div>{/* /scroll container */}
+            </div>{/* /relative messages area wrapper */}
+
+            {/* WhatsApp-style typing bubble — transparent strip above input */}
+            {!selectedChat.isBanned && (() => {
+              const typers = Array.from(typing.entries ? typing.entries() : [])
+                .filter(([key]) => key.startsWith(`${selectedChat.id}:`))
+                .map(([key, name]) => ({
+                  userId: key.split(':')[1],
+                  name: name || 'Someone',
+                }));
+              if (typers.length === 0) return null;
+              const isGroup = selectedChat.type === 'group';
+              return (
+                <div className="px-6 pt-1 pb-4 typing-enter pointer-events-none" style={{ background: '#06040f' }}>
+                  <div className="flex items-end gap-2">
+                    {isGroup && (
+                      <div className="flex -space-x-2">
+                        {typers.slice(0, 3).map(t => (
+                          <div
+                            key={t.userId}
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 shadow-lg"
+                            style={{
+                              background: 'linear-gradient(135deg, #9668F5, #6E4FEF)',
+                              borderColor: '#06040f',
+                            }}
+                            title={t.name}
+                          >
+                            {t.name.charAt(0).toUpperCase()}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div
+                      className="flex items-center gap-1.5 px-4 py-3 rounded-2xl rounded-bl-md backdrop-blur-xl"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(150,104,245,0.10))',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 8px 24px -6px rgba(110,79,239,0.45), 0 0 24px -8px rgba(150,104,245,0.5)',
+                        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                      }}
+                    >
+                      <span className="typing-dot" style={{ animationDelay: '0s' }} />
+                      <span className="typing-dot" style={{ animationDelay: '0.18s' }} />
+                      <span className="typing-dot" style={{ animationDelay: '0.36s' }} />
+                    </div>
+                    {isGroup && (
+                      <span className="text-[11px] ml-1 mb-2 truncate max-w-[180px]" style={{ color: '#c4a8ff' }}>
+                        {typers.length === 1
+                          ? `${typers[0].name} is typing…`
+                          : typers.length === 2
+                            ? `${typers[0].name} & ${typers[1].name} are typing…`
+                            : `${typers[0].name} & ${typers.length - 1} others typing…`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Message Input */}
-            <div className="px-6 py-4 border-t" style={{ background: '#1D1B2E', borderColor: '#302D50' }}>
-              {muteInfo[selectedChat.id] && muteCountdown ? (
-                <div className="flex items-center justify-center py-3 px-4 rounded-2xl" style={{ background: '#252341', border: '1px solid #302D50' }}>
+            <div className="px-6 py-4 border-t" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
+              {/* Lock banner — group is locked by moderation (non-privileged users see this INSTEAD of input) */}
+              {selectedChat.type === 'group' && groupLocked[selectedChat.id] && !['moderator','admin','owner'].includes(selectedChat.userRole) ? (
+                <div className="flex items-center justify-center py-3 px-4 rounded-2xl" style={{ background: '#3b1c1c', border: '1px solid #7f1d1d' }}>
+                  <span className="mr-2">🔒</span>
+                  <span className="text-sm" style={{ color: '#fca5a5' }}>
+                    This group is locked by moderation. Messaging is temporarily disabled.
+                  </span>
+                </div>
+              ) : muteInfo[selectedChat.id] && muteCountdown ? (
+                <div className="flex items-center justify-center py-3 px-4 rounded-2xl" style={{ background: '#15102b', border: '1px solid #362A60' }}>
                   <svg className="w-5 h-5 mr-2 flex-shrink-0" style={{ color: '#f87171' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
@@ -1177,7 +1371,7 @@ export default function ChatPage() {
                 </div>
               ) : (
               <form onSubmit={handleSendMessage} className="flex items-end space-x-3">
-                <button type="button" className="p-3 rounded-full transition-colors hover:bg-[#2D2847]">
+                <button type="button" className="p-3 rounded-full transition-colors hover:bg-[#1c1538]">
                   <svg className="w-6 h-6" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -1185,6 +1379,7 @@ export default function ChatPage() {
                 
                 <div className="flex-1 relative">
                   <textarea
+                    ref={inputRef}
                     value={messageInput}
                     onChange={handleInputChange}
                     placeholder={connected ? "Type a message..." : "Connecting..."}
@@ -1193,9 +1388,9 @@ export default function ChatPage() {
                     className="w-full px-4 py-3 rounded-2xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-500 max-h-32"
                     style={{
                       minHeight: '48px',
-                      background: '#252341',
-                      border: '1px solid #302D50',
-                      color: '#E2DEFF',
+                      background: '#15102b',
+                      border: '1px solid #362A60',
+                      color: '#ffffff',
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
@@ -1206,7 +1401,7 @@ export default function ChatPage() {
                   />
                 </div>
                 
-                <button type="button" className="p-3 rounded-full transition-colors hover:bg-[#2D2847]">
+                <button type="button" className="p-3 rounded-full transition-colors hover:bg-[#1c1538]">
                   <svg className="w-6 h-6" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
@@ -1216,7 +1411,7 @@ export default function ChatPage() {
                   type="submit"
                   disabled={!connected || !messageInput.trim()}
                   className="p-3 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105"
-                  style={{ background: 'linear-gradient(135deg, #7C3AED, #a855f7)' }}
+                  style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}
                 >
                   <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -1230,15 +1425,15 @@ export default function ChatPage() {
           </div>
         ) : (
           /* Welcome Screen */
-          <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#13111C' }}>
+          <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#06040f' }}>
             <div className="text-center max-w-md">
               <div className="w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8"
-                   style={{ background: 'linear-gradient(135deg, #7C3AED, #a855f7)' }}>
+                   style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}>
                 <div className="text-6xl">💬</div>
               </div>
               {loadingConversations ? (
                 <>
-                  <h2 className="text-2xl font-bold mb-4" style={{ color: '#E2DEFF' }}>Loading your chats...</h2>
+                  <h2 className="text-2xl font-bold mb-4" style={{ color: '#ffffff' }}>Loading your chats...</h2>
                   <div className="inline-flex items-center space-x-2" style={{ color: '#8A84A3' }}>
                     <div className="w-5 h-5 border-2 border-violet-700 border-t-violet-400 rounded-full animate-spin"></div>
                     <span>Getting everything ready for you</span>
@@ -1246,7 +1441,7 @@ export default function ChatPage() {
                 </>
               ) : conversations.length === 0 ? (
                 <>
-                  <h2 className="text-2xl font-bold mb-4" style={{ color: '#E2DEFF' }}>Welcome to Konnect Chat</h2>
+                  <h2 className="text-2xl font-bold mb-4" style={{ color: '#ffffff' }}>Welcome to Konnect Chat</h2>
                   <p className="leading-relaxed mb-6" style={{ color: '#8A84A3' }}>
                     You don&apos;t have any conversations yet. Start chatting by adding contacts or joining groups!
                   </p>
@@ -1254,14 +1449,14 @@ export default function ChatPage() {
                     <button 
                       onClick={() => setShowAddContact(true)}
                       className="px-6 py-2 text-white rounded-lg transition-colors"
-                      style={{ background: '#7C3AED' }}
+                      style={{ background: '#9668F5' }}
                     >
                       Add Contact
                     </button>
                     <button 
                       onClick={() => setShowJoinGroup(true)}
                       className="px-6 py-2 rounded-lg transition-colors"
-                      style={{ border: '1px solid #302D50', color: '#E2DEFF' }}
+                      style={{ border: '1px solid #362A60', color: '#ffffff' }}
                     >
                       Join Group
                     </button>
@@ -1269,7 +1464,7 @@ export default function ChatPage() {
                 </>
               ) : (
                 <>
-                  <h2 className="text-2xl font-bold mb-4" style={{ color: '#E2DEFF' }}>Welcome to Konnect Chat</h2>
+                  <h2 className="text-2xl font-bold mb-4" style={{ color: '#ffffff' }}>Welcome to Konnect Chat</h2>
                   <p className="leading-relaxed" style={{ color: '#8A84A3' }}>
                     Select a conversation from the sidebar to start chatting with your contacts and groups. 
                     Stay connected with real-time messaging, typing indicators, and more.
@@ -1281,8 +1476,35 @@ export default function ChatPage() {
         )}
       </div>
       
+      {/* Moderation Toast */}
+      {moderationToast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-lg text-sm font-medium animate-fade-in"
+             style={{ background: '#15102b', border: '1px solid #362A60', color: '#ffffff' }}>
+          {moderationToast}
+        </div>
+      )}
+
+      {/* Moderation Dashboard — slides in from the right over the chat area */}
+      <AnimatePresence>
+        {showModerationDashboard && selectedChat?.type === 'group' && (
+          <ModerationDashboard
+            groupId={selectedChat.id}
+            groupName={selectedChat.name}
+            userRole={selectedChat.userRole}
+            sentiment={groupSentiment[selectedChat.id]}
+            locked={!!groupLocked[selectedChat.id]}
+            onClose={() => setShowModerationDashboard(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Mobile responsive overlay for smaller screens */}
       <style jsx global>{`
+        @keyframes fade-in {
+          from { opacity: 0; transform: translate(-50%, -12px); }
+          to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        .animate-fade-in { animation: fade-in 0.3s ease-out; }
         @media (max-width: 768px) {
           .w-80 {
             width: 100% !important;
