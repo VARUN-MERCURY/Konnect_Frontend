@@ -155,31 +155,34 @@ export default function AddContactModal({ show, onClose, onAddContact, currentUs
           </div>
         </div>
 
-        {/* Search Type Tabs */}
-        <div
-          className="flex shrink-0 px-2"
-          style={{ borderBottom: '1px solid #362A60' }}
-        >
-          {[
-            { key: 'username', label: 'Username' },
-            { key: 'email', label: 'Email' },
-            { key: 'code', label: 'Code' },
-          ].map((tab) => {
-            const active = searchType === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setSearchType(tab.key)}
-                className="flex-1 py-2.5 text-sm font-medium transition-colors"
-                style={{
-                  color: active ? '#c4a8ff' : '#8A84A3',
-                  borderBottom: active ? '2px solid #9668F5' : '2px solid transparent',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+        {/* Search Type — pill chips so they're impossible to miss on mobile */}
+        <div className="px-4 pt-1 pb-2 shrink-0">
+          <div className="text-[10px] uppercase tracking-wider mb-1.5" style={{ color: '#8A84A3' }}>
+            Search by
+          </div>
+          <div className="flex gap-2">
+            {[
+              { key: 'username', label: 'Username' },
+              { key: 'email', label: 'Email' },
+              { key: 'code', label: 'User Code' },
+            ].map((tab) => {
+              const active = searchType === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setSearchType(tab.key)}
+                  className="flex-1 py-2 text-xs font-semibold rounded-full transition-colors"
+                  style={{
+                    background: active ? '#9668F5' : '#15102b',
+                    color: active ? '#ffffff' : '#c4a8ff',
+                    border: active ? '1px solid #9668F5' : '1px solid #362A60',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Search Input */}
@@ -246,10 +249,13 @@ export default function AddContactModal({ show, onClose, onAddContact, currentUs
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-sm truncate" style={{ color: '#ffffff' }}>
-                      {user.name || user.username}
+                      {user.name || user.username || 'User'}
                     </div>
                     <div className="text-xs truncate" style={{ color: '#8A84A3' }}>
-                      @{user.username} · {user.userCode}
+                      {user.username ? `@${user.username}` : ''}
+                      {user.username && user.userCode ? ' · ' : ''}
+                      {user.userCode || ''}
+                      {!user.username && !user.userCode && user.email ? user.email : ''}
                     </div>
                   </div>
                   <div
