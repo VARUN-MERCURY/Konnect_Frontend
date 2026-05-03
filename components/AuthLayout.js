@@ -201,12 +201,45 @@ export default function AuthLayout() {
         {/* RIGHT pane: stacked forms + draggable vertical curtain */}
         <div ref={rightPaneRef} className="flex-1 lg:w-1/2 relative z-10 overflow-hidden">
           {/* Mobile fallback */}
-          <div className="lg:hidden flex items-center justify-center min-h-screen p-6">
+          <div className="lg:hidden flex flex-col items-center justify-start min-h-screen px-4 pt-8 pb-10">
+            {/* Mobile brand header */}
+            <div className="flex items-center gap-2.5 mb-6">
+              <img src="/konnect-logo.png" alt="Konnect" className="w-10 h-10 object-contain drop-shadow-[0_0_18px_rgba(150,104,245,0.6)]" />
+              <div>
+                <div className="text-white font-bold text-xl tracking-tight leading-none">Konnect</div>
+                <div className="text-[#5740A0] text-[9px] tracking-[0.2em] uppercase mt-0.5">by DevGroup</div>
+              </div>
+            </div>
+
+            {/* Mobile login / register tab switcher (hidden during OTP step) */}
+            {!showOtp && (
+              <div className="w-full max-w-[420px] mb-4 p-1 rounded-2xl border flex" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
+                <button
+                  onClick={() => { window.history.replaceState({}, '', '/login'); router.replace('/login'); }}
+                  className="flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all"
+                  style={!isRegister
+                    ? { background: 'linear-gradient(135deg, #9668F5, #6E4FEF)', color: '#ffffff', boxShadow: '0 4px 14px rgba(110,79,239,0.4)' }
+                    : { background: 'transparent', color: '#8A84A3' }}
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => { window.history.replaceState({}, '', '/register'); router.replace('/register'); }}
+                  className="flex-1 py-2.5 text-sm font-semibold rounded-xl transition-all"
+                  style={isRegister
+                    ? { background: 'linear-gradient(135deg, #9668F5, #6E4FEF)', color: '#ffffff', boxShadow: '0 4px 14px rgba(110,79,239,0.4)' }
+                    : { background: 'transparent', color: '#8A84A3' }}
+                >
+                  Create Account
+                </button>
+              </div>
+            )}
+
             <div className="w-full max-w-[420px]">
               <div className="glass-card group">
                 <div className="glass-sheen" />
                 <div className="glass-edge" />
-                <div className="relative p-8">
+                <div className="relative p-6 sm:p-8">
                   {showOtp ? (
                     <OtpForm email={otpEmail} flow={otpFlow} onBack={handleOtpBack} />
                   ) : isRegister ? (

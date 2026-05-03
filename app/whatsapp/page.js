@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { isAuthenticated, getAccessToken, getConversations, getCurrentUser, authenticatedRequest, getMessages, leaveGroup, getModerationStats } from '@/lib/api';
+import { isAuthenticated, getAccessToken, getConversations, getCurrentUser, authenticatedRequest, getMessages, leaveGroup, getModerationStats, getGroupMembers } from '@/lib/api';
 import ModerationDashboard from '@/components/ModerationDashboard';
 import StarsBackground from '@/components/StarsBackground';
 import { useWebSocket } from '@/lib/websocket';
@@ -279,25 +279,37 @@ export default function ChatPage() {
       
       try {
         const apiConversations = await getConversations();
-        
-        // Transform API data to frontend format
-        const transformedConversations = apiConversations.map(conv => ({
-          id: conv.conversationId,
-          name: conv.displayInfo.name,
-          type: conv.type,
-          avatar: conv.displayInfo.avatar || (conv.type === 'group' ? '👥' : conv.displayInfo.name[0]?.toUpperCase()),
-          lastMessage: conv.lastMessage ? conv.lastMessage.content : '',
-          lastTime: conv.lastMessage ? conv.lastMessage.timestamp : conv.updatedAt,
-          unread: conv.unreadCount || 0,
-          online: conv.displayInfo.isOnline || false,
-          otherUserId: conv.displayInfo.otherUserId || null,
-          participants: conv.displayInfo.participantCount || 2,
-          participantIds: conv.displayInfo.participantIds || [],
-          userRole: conv.userRole,
-          isPremium: conv.isPremium,
-          isBanned: conv.isBanned || false
-        }));
-        
+
+        // Transform API data to frontend format. Be defensive: a malformed row from
+        // the backend should be skipped, not crash the whole list render.
+        const transformedConversations = (apiConversations || []).map(conv => {
+          try {
+            const di = conv.displayInfo || {};
+            const name = di.name || (conv.type === 'group' ? 'Group' : 'Conversation');
+            return {
+              id: conv.conversationId,
+              name,
+              type: conv.type,
+              avatar: di.avatar || (conv.type === 'group' ? '👥' : (name[0] || '?').toUpperCase()),
+              lastMessage: conv.lastMessage ? conv.lastMessage.content : '',
+              lastTime: conv.lastMessage ? conv.lastMessage.timestamp : conv.updatedAt,
+              unread: conv.unreadCount || 0,
+              online: di.isOnline || false,
+              otherUserId: di.otherUserId || null,
+              // For groups we leave participants undefined so the header doesn't briefly
+              // render a stale cached count and then update — getGroupMembers fills it in.
+              participants: conv.type === 'group' ? undefined : (di.participantCount || 2),
+              participantIds: di.participantIds || [],
+              userRole: conv.userRole,
+              isPremium: conv.isPremium,
+              isBanned: conv.isBanned || false,
+            };
+          } catch (e) {
+            console.warn('[conversations] skipped malformed row', conv, e);
+            return null;
+          }
+        }).filter(Boolean);
+
         setConversations(transformedConversations);
 
         // Subscribe to ALL conversation rooms so we receive realtime updates
@@ -324,13 +336,54 @@ export default function ChatPage() {
     loadConversations();
   }, [router]);
 
-  // Auto-select first non-banned conversation
+  // Auto-select first non-banned conversation (desktop only, and only on first load).
+  // On mobile we want the user to land on the conversation list, not auto-jump into a chat
+  // (otherwise the "back to conversations" button would just re-open the same chat).
+  const autoSelectedRef = useRef(false);
   useEffect(() => {
-    if (!selectedChat && conversations.length > 0 && !loadingConversations) {
-      const firstUsable = conversations.find(c => !c.isBanned);
-      if (firstUsable) setSelectedChat(firstUsable);
+    if (autoSelectedRef.current) return;
+    if (selectedChat || conversations.length === 0 || loadingConversations) return;
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+      autoSelectedRef.current = true; // mobile: never auto-select
+      return;
+    }
+    const firstUsable = conversations.find(c => !c.isBanned);
+    if (firstUsable) {
+      autoSelectedRef.current = true;
+      setSelectedChat(firstUsable);
     }
   }, [selectedChat, conversations, loadingConversations]);
+
+  // Resolve authoritative participant counts for groups missing one.
+  // Done in the background so the sidebar shows real numbers without flicker.
+  const resolvedCountsRef = useRef(new Set());
+  useEffect(() => {
+    const groupsNeedingCount = conversations.filter(
+      c => c.type === 'group' && typeof c.participants !== 'number' && !resolvedCountsRef.current.has(c.id)
+    );
+    if (groupsNeedingCount.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const g of groupsNeedingCount) {
+        resolvedCountsRef.current.add(g.id);
+        try {
+          const data = await getGroupMembers(g.id);
+          const count = Array.isArray(data?.members) ? data.members.length : null;
+          if (cancelled || count == null) continue;
+          setConversations(prev =>
+            prev.map(c => (c.id === g.id ? { ...c, participants: count } : c))
+          );
+          setSelectedChat(prev =>
+            prev && prev.id === g.id ? { ...prev, participants: count } : prev
+          );
+        } catch (err) {
+          // Non-fatal — leave participants undefined; header just hides the count
+          resolvedCountsRef.current.delete(g.id);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [conversations]);
 
   // When a WebSocket message arrives, update the sidebar.
   // If the conversation is new (User B never saw it), fetch it from the API.
@@ -349,6 +402,16 @@ export default function ChatPage() {
       : '';
     const timestamp = latest.timestamp || latest.createdAt || new Date().toISOString();
 
+    // System events (member left/joined/removed/banned) carry the new
+    // participant count from the backend — sync it into local state so the
+    // group header shows the correct number without a manual refresh.
+    const hasParticipantUpdate =
+      latest.messageType === 'system' && typeof latest.participantCount === 'number';
+
+    if (hasParticipantUpdate && selectedChat?.id?.toString() === convId) {
+      setSelectedChat(prev => prev ? { ...prev, participants: latest.participantCount } : prev);
+    }
+
     setConversations(prev => {
       const existingIndex = prev.findIndex(c => c.id?.toString() === convId);
 
@@ -361,7 +424,8 @@ export default function ChatPage() {
           ...prev[existingIndex],
           lastMessage: preview,
           lastTime: timestamp,
-          unread: isActiveConv ? 0 : prevUnread + 1
+          unread: isActiveConv ? 0 : prevUnread + 1,
+          ...(hasParticipantUpdate ? { participants: latest.participantCount } : {})
         };
         return [updated, ...prev.filter((_, i) => i !== existingIndex)];
       }
@@ -452,6 +516,32 @@ export default function ChatPage() {
 
   // Close group menu when chat changes
   useEffect(() => { setShowGroupMenu(false); }, [selectedChat?.id]);
+
+  // Refresh authoritative participant count whenever a group is opened, so a
+  // stale cached number (e.g. someone left while we were offline) is corrected.
+  useEffect(() => {
+    if (!selectedChat?.id || selectedChat.type !== 'group') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getGroupMembers(selectedChat.id);
+        const activeCount = Array.isArray(data?.members) ? data.members.length : null;
+        if (cancelled || activeCount == null) return;
+        setSelectedChat(prev =>
+          prev && prev.id === selectedChat.id && prev.participants !== activeCount
+            ? { ...prev, participants: activeCount }
+            : prev
+        );
+        setConversations(prev =>
+          prev.map(c => (c.id === selectedChat.id ? { ...c, participants: activeCount } : c))
+        );
+      } catch (err) {
+        // Non-fatal — just keep the cached count
+        console.warn('Failed to refresh group members:', err?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedChat?.id, selectedChat?.type]);
 
   // Join/leave conversation rooms and check online status when chat changes
   useEffect(() => {
@@ -653,10 +743,13 @@ export default function ChatPage() {
     }
   };
 
-  // Filter conversations based on search
-  const filteredConversations = conversations.filter(conv =>
-    conv.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter conversations based on search.
+  // Defensive: skip rows missing a name (a bad backend record shouldn't blank the list).
+  const filteredConversations = conversations.filter(conv => {
+    if (!conv || typeof conv.name !== 'string') return false;
+    const q = (searchQuery || '').toLowerCase();
+    return q === '' || conv.name.toLowerCase().includes(q);
+  });
 
   // Get message status icon
   const getStatusIcon = (status) => {
@@ -731,9 +824,9 @@ export default function ChatPage() {
         onGroupCreated={handleCreateGroupDone}
       />
 
-      <div className="h-screen flex overflow-hidden" style={{ background: '#06040f' }}>
+      <div className="h-screen-dvh flex overflow-hidden items-stretch" style={{ background: '#06040f' }}>
         {/* Left Sidebar - Chat List */}
-        <div className="w-80 flex flex-col border-r" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
+        <div className={`${selectedChat ? 'hidden md:flex' : 'flex'} w-full md:w-80 flex-col border-r min-h-0`} style={{ background: '#0d0b1a', borderColor: '#362A60', height: '100dvh' }}>
           {/* Header */}
           <div className="px-4 py-3 border-b" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
             <div className="flex items-center justify-between">
@@ -843,7 +936,7 @@ export default function ChatPage() {
           </div>
 
           {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="overflow-y-auto" style={{ flex: '1 1 0%', minHeight: 0 }}>
             {loadingConversations ? (
               <div className="p-4">
                 <div className="space-y-3">
@@ -919,8 +1012,8 @@ export default function ChatPage() {
                   onMouseEnter={e => { if (selectedChat?.id !== conversation.id) e.currentTarget.style.background = '#15102b'; }}
                   onMouseLeave={e => { if (selectedChat?.id !== conversation.id) e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <div className="flex items-center space-x-3">
-                    <div className="relative flex-shrink-0">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%' }}>
+                    <div className="relative" style={{ flexShrink: 0 }}>
                       <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-semibold"
                            style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}>
                         {conversation.avatar}
@@ -930,11 +1023,11 @@ export default function ChatPage() {
                       )}
                     </div>
                     
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-semibold truncate" style={{ color: '#ffffff' }}>{conversation.name}</h3>
-                        <div className="flex items-center space-x-1 ml-2 flex-shrink-0">
-                          <span className="text-xs" style={{ color: '#8A84A3' }}>{formatTime(conversation.lastTime)}</span>
+                    <div style={{ flex: '1 1 0%', minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <h3 style={{ color: '#ffffff', fontWeight: 600, fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{conversation.name}</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                          <span style={{ color: '#8A84A3', fontSize: '11px' }}>{formatTime(conversation.lastTime)}</span>
                           {conversation.unread > 0 && (
                             <div className="min-w-5 h-5 px-1 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-medium">
                               {conversation.unread >= 99 ? '99+' : conversation.unread}
@@ -942,12 +1035,12 @@ export default function ChatPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm truncate mt-0.5" style={{ color: conversation.isBanned ? '#f87171' : '#8A84A3' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
+                        <p style={{ color: conversation.isBanned ? '#f87171' : '#8A84A3', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>
                           {conversation.isBanned ? '🚫 Banned' : conversation.lastMessage}
                         </p>
-                        {conversation.type === 'group' && (
-                          <span className="text-xs ml-2 flex-shrink-0" style={{ color: '#8A84A3' }} title={`${conversation.participants} participants`}>
+                        {conversation.type === 'group' && typeof conversation.participants === 'number' && (
+                          <span style={{ color: '#8A84A3', fontSize: '11px', marginLeft: '8px', flexShrink: 0 }} title={`${conversation.participants} participants`}>
                             {conversation.participants}
                           </span>
                         )}
@@ -962,40 +1055,71 @@ export default function ChatPage() {
 
         {/* Main Chat Area */}
         {selectedChat ? (
-          <div className="flex-1 flex flex-col" style={{ background: '#06040f' }}>
+          <div className="flex-1 flex flex-col min-w-0" style={{ background: '#06040f' }}>
             {/* Chat Header */}
-            <div className="px-6 py-4 border-b" style={{ background: 'linear-gradient(180deg, rgba(150,104,245,0.18) 0%, rgba(110,79,239,0.10) 50%, rgba(13,11,26,0.95) 100%)', borderColor: '#362A60', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-semibold"
+            <div className="px-2 md:px-6 py-2 md:py-4 border-b safe-top" style={{ background: 'linear-gradient(180deg, rgba(150,104,245,0.18) 0%, rgba(110,79,239,0.10) 50%, rgba(13,11,26,0.95) 100%)', borderColor: '#362A60', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center space-x-2 md:space-x-3 min-w-0 flex-1">
+                  {/* Mobile back button */}
+                  <button
+                    onClick={() => setSelectedChat(null)}
+                    className="md:hidden p-2 rounded-full active:bg-[#1c1538] flex-shrink-0"
+                    style={{ background: 'rgba(54,42,96,0.55)' }}
+                    aria-label="Back to chats"
+                  >
+                    <svg className="w-5 h-5" style={{ color: '#ffffff' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-white text-sm md:text-lg font-semibold flex-shrink-0"
                        style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}>
                     {selectedChat.avatar}
                   </div>
-                  <div>
-                    <h2 className="font-semibold" style={{ color: '#ffffff' }}>{selectedChat.name}</h2>
-                    <div className="flex items-center space-x-2 text-sm" style={{ color: '#8A84A3' }}>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-semibold truncate text-sm md:text-base" style={{ color: '#ffffff' }}>{selectedChat.name}</h2>
+                    <div className="flex items-center space-x-1.5 md:space-x-2 text-[11px] md:text-sm overflow-hidden whitespace-nowrap" style={{ color: '#8A84A3' }}>
                       {selectedChat.isBanned ? (
                         <span className="text-red-400 font-medium">Banned</span>
                       ) : selectedChat.type === 'group' ? (
                         <>
-                          <span>{selectedChat.participants} participants</span>
-                          <span>•</span>
+                          {typeof selectedChat.participants === 'number' && (
+                            <>
+                              <span>{selectedChat.participants} participants</span>
+                              <span>•</span>
+                            </>
+                          )}
                           <span>{groupOnlineMembers.length} online</span>
-                          {/* Sentiment mood indicator */}
+                          {/* Sentiment indicator — compact pill on mobile, full meter on desktop */}
                           {groupSentiment[selectedChat.id] && (() => {
                             const s = groupSentiment[selectedChat.id];
                             const moodEmoji = { positive: '😊', negative: '😠', neutral: '😐', mixed: '🤔' };
                             const statusColor = { normal: '#22c55e', warning: '#eab308', notify_moderator: '#f97316', auto_lock: '#ef4444' };
+                            const statusBg = { normal: 'rgba(34,197,94,0.15)', warning: 'rgba(234,179,8,0.15)', notify_moderator: 'rgba(249,115,22,0.18)', auto_lock: 'rgba(239,68,68,0.18)' };
+                            const dot = statusColor[s.status] || '#22c55e';
+                            const bg = statusBg[s.status] || 'rgba(34,197,94,0.15)';
+                            const tox = Math.round((s.avg_toxicity || 0) * 100);
                             return (
                               <>
-                                <span>•</span>
-                                <span title={`Mood: ${s.mood} | Status: ${s.status}`}>{moodEmoji[s.mood] || '😐'}</span>
-                                <div className="flex items-center space-x-1" title={`Toxicity: ${Math.round((s.avg_toxicity || 0) * 100)}%`}>
+                                {/* Mobile: structured pill — colored dot + toxicity % */}
+                                <span
+                                  className="md:hidden inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full ml-1 flex-shrink-0"
+                                  style={{ background: bg, border: `1px solid ${dot}40` }}
+                                  title={`Mood: ${s.mood} • Toxicity ${tox}% • ${s.status}`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: dot }} />
+                                  <span className="text-[10px] font-medium leading-none" style={{ color: dot }}>{tox}%</span>
+                                </span>
+                                {/* Desktop: emoji + slim toxicity bar */}
+                                <span className="hidden md:inline" title={`Mood: ${s.mood} | Status: ${s.status}`}>•</span>
+                                <span className="hidden md:inline" title={`Mood: ${s.mood} | Status: ${s.status}`}>
+                                  {moodEmoji[s.mood] || '😐'}
+                                </span>
+                                <div className="hidden md:flex items-center space-x-1" title={`Toxicity: ${tox}%`}>
                                   <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: '#362A60' }}>
-                                    <div className="h-full rounded-full transition-all duration-500" style={{
-                                      width: `${Math.round((s.avg_toxicity || 0) * 100)}%`,
-                                      background: statusColor[s.status] || '#22c55e'
-                                    }} />
+                                    <div
+                                      className="h-full rounded-full transition-all duration-500"
+                                      style={{ width: `${tox}%`, background: dot }}
+                                    />
                                   </div>
                                 </div>
                               </>
@@ -1012,9 +1136,9 @@ export default function ChatPage() {
                   </div>
                 </div>
                 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1 md:space-x-2 flex-shrink-0">
                   {!selectedChat.isBanned && (
-                    <button className="p-2 rounded-full transition-colors hover:bg-[#1c1538]">
+                    <button className="hidden md:inline-flex p-2 rounded-full transition-colors hover:bg-[#1c1538]">
                       <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
@@ -1125,7 +1249,7 @@ export default function ChatPage() {
               <div
                 ref={messagesContainerRef}
                 onScroll={handleMessagesScroll}
-                className="absolute inset-0 overflow-y-auto px-6 py-4 pb-16 space-y-4"
+                className="absolute inset-0 overflow-y-auto px-3 md:px-6 py-3 md:py-4 pb-16 space-y-4"
                 style={{ zIndex: 1 }}>
               <div className="relative">
               {loadingHistory && (
@@ -1183,13 +1307,21 @@ export default function ChatPage() {
                     );
                   }
 
+                  // Normalize senderId — can be populated object {_id, name, ...} (history)
+                  // or plain ObjectId string (real-time WS messages)
+                  const getSenderIdStr = (m) =>
+                    (m?.senderId?._id || m?.senderId || '')?.toString();
+                  const currentSenderIdStr = getSenderIdStr(message);
+                  const prevSenderIdStr = getSenderIdStr(allMessages[index - 1]);
+
                   const isMyMessage =
-                    message.senderId?._id === currentUser?._id ||
-                    message.senderId === currentUser?._id ||
-                    message.sender?.username === 'You' ||
-                    message.senderId?.toString() === currentUser?._id?.toString();
+                    currentSenderIdStr === currentUser?._id?.toString() ||
+                    message.sender?.username === 'You';
                   const senderName = message.senderId?.name || message.senderInfo?.name || message.sender?.username || 'Unknown';
-                  const showAvatar = !isMyMessage && (index === 0 || allMessages[index - 1]?.senderId?._id?.toString() !== message.senderId?._id?.toString());
+                  // Guard: if senderName accidentally became a 24-char hex ObjectId, hide it
+                  const safeSenderName = /^[a-f0-9]{24}$/i.test(senderName) ? 'Unknown' : senderName;
+                  const senderLeft = message.senderLeft === true;
+                  const showAvatar = !isMyMessage && (index === 0 || prevSenderIdStr !== currentSenderIdStr);
                   const msgId = (message._id || message.messageId)?.toString();
                   const isFlagged = msgId && flaggedMessages[msgId];
                   const isRevealed = msgId && revealedMessages[msgId];
@@ -1204,17 +1336,28 @@ export default function ChatPage() {
                         <div className={`w-8 h-8 mr-2 ${showAvatar ? '' : 'opacity-0'}`}>
                           {showAvatar && (
                             <div className="w-8 h-8 rounded-full flex items-center justify-center"
-                                 style={{ background: 'linear-gradient(135deg, #4c1d95, #9668F5)' }}>
+                                 style={{ background: senderLeft
+                                   ? 'linear-gradient(135deg, #4b5563, #6b7280)'
+                                   : 'linear-gradient(135deg, #4c1d95, #9668F5)' }}>
                               <span className="text-white text-xs font-medium">
-                                {senderName[0]?.toUpperCase() || 'U'}
+                                {safeSenderName[0]?.toUpperCase() || 'U'}
                               </span>
                             </div>
                           )}
                         </div>
                       )}
-                      <div className={`max-w-md group ${isMyMessage ? 'items-end' : 'items-start'} flex flex-col`}>
-                        {!isMyMessage && showAvatar && selectedChat.type === 'group' && (
-                          <div className="text-xs font-medium mb-1 px-1" style={{ color: '#c4a8ff' }}>{senderName}</div>
+                      <div className={`max-w-[78%] sm:max-w-md group ${isMyMessage ? 'items-end' : 'items-start'} flex flex-col min-w-0`}>
+                        {!isMyMessage && selectedChat.type === 'group' && (
+                          <div className="text-xs font-medium mb-1 px-1 flex items-center gap-1.5"
+                               style={{ color: senderLeft ? '#9ca3af' : '#c4a8ff' }}>
+                            <span>{safeSenderName}</span>
+                            {senderLeft && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-normal"
+                                    style={{ background: '#1f2937', color: '#9ca3af' }}>
+                                former member
+                              </span>
+                            )}
+                          </div>
                         )}
                         {isFlagged && !isRevealed ? (
                           /* Flagged message — hidden until clicked */
@@ -1350,7 +1493,7 @@ export default function ChatPage() {
             })()}
 
             {/* Message Input */}
-            <div className="px-6 py-4 border-t" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
+            <div className="px-3 md:px-6 py-3 md:py-4 border-t safe-bottom" style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
               {/* Lock banner — group is locked by moderation (non-privileged users see this INSTEAD of input) */}
               {selectedChat.type === 'group' && groupLocked[selectedChat.id] && !['moderator','admin','owner'].includes(selectedChat.userRole) ? (
                 <div className="flex items-center justify-center py-3 px-4 rounded-2xl" style={{ background: '#3b1c1c', border: '1px solid #7f1d1d' }}>
@@ -1370,14 +1513,14 @@ export default function ChatPage() {
                   </span>
                 </div>
               ) : (
-              <form onSubmit={handleSendMessage} className="flex items-end space-x-3">
-                <button type="button" className="p-3 rounded-full transition-colors hover:bg-[#1c1538]">
+              <form onSubmit={handleSendMessage} className="flex items-end space-x-2 md:space-x-3">
+                <button type="button" className="hidden md:inline-flex p-3 rounded-full transition-colors hover:bg-[#1c1538]">
                   <svg className="w-6 h-6" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </button>
                 
-                <div className="flex-1 relative">
+                <div className="flex-1 relative min-w-0">
                   <textarea
                     ref={inputRef}
                     value={messageInput}
@@ -1385,7 +1528,7 @@ export default function ChatPage() {
                     placeholder={connected ? "Type a message..." : "Connecting..."}
                     disabled={!connected}
                     rows={1}
-                    className="w-full px-4 py-3 rounded-2xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-500 max-h-32"
+                    className="w-full px-3 md:px-4 py-3 rounded-2xl text-base md:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-500 max-h-32"
                     style={{
                       minHeight: '48px',
                       background: '#15102b',
@@ -1401,7 +1544,7 @@ export default function ChatPage() {
                   />
                 </div>
                 
-                <button type="button" className="p-3 rounded-full transition-colors hover:bg-[#1c1538]">
+                <button type="button" className="hidden md:inline-flex p-3 rounded-full transition-colors hover:bg-[#1c1538]">
                   <svg className="w-6 h-6" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
@@ -1410,10 +1553,10 @@ export default function ChatPage() {
                 <button
                   type="submit"
                   disabled={!connected || !messageInput.trim()}
-                  className="p-3 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105"
+                  className="p-2.5 md:p-3 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 flex-shrink-0"
                   style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}
                 >
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                   </svg>
                 </button>
@@ -1424,9 +1567,9 @@ export default function ChatPage() {
             )}
           </div>
         ) : (
-          /* Welcome Screen */
-          <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#06040f' }}>
-            <div className="text-center max-w-md">
+          /* Welcome Screen — hidden on mobile (sidebar takes full width when no chat is selected) */
+          <div className="hidden md:flex flex-1 flex-col items-center justify-center" style={{ background: '#06040f' }}>
+            <div className="text-center max-w-md px-6">
               <div className="w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8"
                    style={{ background: 'linear-gradient(135deg, #9668F5, #6E4FEF)' }}>
                 <div className="text-6xl">💬</div>

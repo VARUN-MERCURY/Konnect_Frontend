@@ -249,9 +249,9 @@ export default function GroupInfoModal({ show, onClose, group, currentUserId, on
   const isModOrAbove = ['moderator', 'admin', 'owner'].includes(myRole);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3" onClick={onClose}>
       <div
-        className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] mx-4 flex flex-col"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -98,7 +98,7 @@ export default function ModerationDashboard({ groupId, groupName, userRole, sent
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: '100%', opacity: 0 }}
         transition={{ type: 'spring', stiffness: 320, damping: 32, mass: 0.8 }}
-        className="fixed top-0 bottom-0 right-0 left-80 z-40 flex flex-col"
+        className="fixed top-0 bottom-0 right-0 left-0 md:left-80 z-40 flex flex-col"
         style={{
           background: 'linear-gradient(180deg, rgba(150,104,245,0.10) 0%, rgba(13,11,26,0.98) 12%, #06040f 100%)',
           borderLeft: '1px solid #362A60',
@@ -108,7 +108,7 @@ export default function ModerationDashboard({ groupId, groupName, userRole, sent
         }}
       >
         {/* Header */}
-        <div className="px-8 py-5 border-b flex items-center justify-between" style={{ borderColor: '#362A60', background: 'linear-gradient(180deg, rgba(150,104,245,0.18) 0%, rgba(110,79,239,0.10) 50%, rgba(13,11,26,0.95) 100%)' }}>
+        <div className="px-4 md:px-8 py-4 md:py-5 border-b flex items-center justify-between" style={{ borderColor: '#362A60', background: 'linear-gradient(180deg, rgba(150,104,245,0.18) 0%, rgba(110,79,239,0.10) 50%, rgba(13,11,26,0.95) 100%)' }}>
           <div className="flex items-center space-x-3">
             <button onClick={onClose} className="p-2 rounded-full hover:bg-[#1c1538] transition-colors" title="Back to chat">
               <svg className="w-5 h-5" style={{ color: '#c4a8ff' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">

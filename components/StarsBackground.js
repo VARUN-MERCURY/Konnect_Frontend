@@ -27,7 +27,7 @@ export default function StarsBackground({
     () =>
       Array.from({ length: 3 }, (_, i) => ({
         id: i,
-        top: Math.random() * 60,
+        top: -5 + Math.random() * 25,
         delay: i * 7 + Math.random() * 5,
         duration: 1.2 + Math.random() * 0.6,
       })),
@@ -49,7 +49,7 @@ export default function StarsBackground({
       const id = ++meteorIdRef.current;
       const delay = Math.random() * 0.35;
       const duration = 0.9 + Math.random() * 0.6;
-      const startTop = -5 + Math.random() * 35;
+      const startTop = -10 + Math.random() * 30;
       const length = 110 + Math.random() * 90;
       return { id, delay, duration, startTop, length };
     });
@@ -165,19 +165,21 @@ export default function StarsBackground({
           animation-name: shoot;
           animation-iteration-count: infinite;
           animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
-          transform: rotate(-18deg);
+          transform-origin: left center;
+          transform: rotate(22deg);
         }
         @keyframes shoot {
-          0% { transform: translateX(0) rotate(-18deg); opacity: 0; }
+          0% { transform: translate(0, 0) rotate(22deg); opacity: 0; }
           5% { opacity: 1; }
           70% { opacity: 1; }
-          100% { transform: translateX(120vw) rotate(-18deg); opacity: 0; }
+          100% { transform: translate(120vw, 50vh) rotate(22deg); opacity: 0; }
         }
         .meteor {
-          /* Anchored at top-right; bar is drawn pointing leftwards.
-             Bright head is at the LEADING (left) end, fading trail behind. */
+          /* Travels from upper-left to lower-right. Bright head is at the
+             LEADING (right) end, fading trail behind. Rotation matches the
+             motion vector so the streak doesn't look "off-axis". */
           position: absolute;
-          right: -5%;
+          left: -5%;
           height: 2px;
           background: linear-gradient(
             90deg,
@@ -189,11 +191,8 @@ export default function StarsBackground({
           border-radius: 9999px;
           opacity: 0;
           filter: drop-shadow(0 0 8px rgba(196, 168, 255, 0.9));
-          /* Rotate around the right (anchor) edge. Negative angle so the
-             leading-left tip swings DOWN, matching the travel direction
-             (top-right -> bottom-left). */
-          transform-origin: right center;
-          transform: rotate(-22deg);
+          transform-origin: left center;
+          transform: rotate(22deg);
           animation-name: meteorShower;
           animation-iteration-count: 1;
           animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -201,9 +200,9 @@ export default function StarsBackground({
           will-change: transform, opacity;
         }
         @keyframes meteorShower {
-          0% { transform: translate(0, 0) rotate(-22deg); opacity: 0; }
+          0% { transform: translate(0, 0) rotate(22deg); opacity: 0; }
           10% { opacity: 1; }
-          100% { transform: translate(-130vw, 55vh) rotate(-22deg); opacity: 0; }
+          100% { transform: translate(130vw, 55vh) rotate(22deg); opacity: 0; }
         }
         @media (prefers-reduced-motion: reduce) {
           .star, .nebula-1, .nebula-2, .shooting-star, .meteor { animation: none !important; }

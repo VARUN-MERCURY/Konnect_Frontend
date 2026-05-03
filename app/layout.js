@@ -1,5 +1,14 @@
 import './globals.css';
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#06040f',
+};
+
 export const metadata = {
   title: 'Konnect',
   description: 'Konnect authentication',

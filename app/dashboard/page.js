@@ -140,17 +140,17 @@ export default function DashboardPage() {
         </header>
 
         {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="space-y-8 animate-fade-in">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+          <div className="space-y-6 md:space-y-8 animate-fade-in">
             {/* Welcome Section */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 md:p-8">
               <div className="text-center space-y-4">
                 <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto">
                   <span className="text-2xl font-bold text-white">{initial}</span>
                 </div>
                 
                 <div className="space-y-2">
-                  <h1 className="text-3xl font-bold text-gray-900">{greeting}</h1>
+                  <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{greeting}</h1>
                   {user && (
                     <div className="text-center space-y-1">
                       <p className="text-lg text-gray-700">@{user.username}</p>
