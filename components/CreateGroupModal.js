@@ -3,8 +3,20 @@
 import { useState } from 'react';
 import { createGroup, generateGroupQR } from '@/lib/api';
 
+const C = {
+  overlay: 'rgba(6, 4, 15, 0.72)',
+  sheet: '#0d0b1a',
+  surface: '#15102b',
+  border: '#362A60',
+  accent: '#9668F5',
+  accentHover: '#6E4FEF',
+  text: '#ffffff',
+  textMuted: '#8A84A3',
+  textAccent: '#c4a8ff',
+};
+
 export default function CreateGroupModal({ show, onClose, onGroupCreated }) {
-  const [stage, setStage] = useState('create'); // 'create' | 'share'
+  const [stage, setStage] = useState('create');
   const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -23,11 +35,15 @@ export default function CreateGroupModal({ show, onClose, onGroupCreated }) {
     try {
       const { conversationId } = await createGroup(groupName.trim(), description.trim());
       setNewConversationId(conversationId);
-      const qr = await generateGroupQR(conversationId);
-      setQrData(qr);
+      try {
+        const qr = await generateGroupQR(conversationId);
+        setQrData(qr);
+      } catch (qrErr) {
+        console.warn('QR generation failed, continuing without QR', qrErr);
+      }
       setStage('share');
     } catch (err) {
-      setError(err.message || 'Failed to create group. Please try again.');
+      setError(err.message || 'Failed to create group.');
     } finally {
       setLoading(false);
     }
@@ -41,11 +57,6 @@ export default function CreateGroupModal({ show, onClose, onGroupCreated }) {
     }
   };
 
-  const handleGoToChat = () => {
-    onGroupCreated?.(newConversationId);
-    handleClose();
-  };
-
   const handleClose = () => {
     setStage('create');
     setGroupName('');
@@ -57,95 +68,152 @@ export default function CreateGroupModal({ show, onClose, onGroupCreated }) {
     onClose();
   };
 
+  const handleGoToChat = () => {
+    onGroupCreated?.(newConversationId);
+    handleClose();
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center"
-      style={{ background: 'rgba(6, 4, 15, 0.7)', backdropFilter: 'blur(4px)' }}
       onClick={handleClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        background: C.overlay,
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full md:max-w-md flex flex-col rounded-t-2xl md:rounded-2xl overflow-hidden shadow-2xl"
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl"
         style={{
-          background: '#0d0b1a',
-          border: '1px solid #362A60',
-          height: '100dvh',
-          maxHeight: '92dvh',
+          background: C.sheet,
+          border: `1px solid ${C.border}`,
+          height: '100vh',
+          maxHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 -10px 40px rgba(0,0,0,0.5)',
         }}
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-4 py-3 shrink-0"
-          style={{ borderBottom: '1px solid #362A60' }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 16px',
+            borderBottom: `1px solid ${C.border}`,
+            flexShrink: 0,
+          }}
         >
-          <h2 className="text-base font-semibold" style={{ color: '#ffffff' }}>
+          <h2 style={{ color: C.text, fontSize: 16, fontWeight: 600, margin: 0 }}>
             {stage === 'create' ? 'Create Group' : 'Group Created!'}
           </h2>
           <button
             onClick={handleClose}
-            className="p-1.5 rounded-full"
-            style={{ color: '#8A84A3' }}
             aria-label="Close"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: C.textMuted,
+              padding: 6,
+              cursor: 'pointer',
+            }}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
-          {stage === 'create' && (
-            <form onSubmit={handleCreate} className="space-y-4">
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 18 }}>
+          {stage === 'create' ? (
+            <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <label
-                  className="block text-xs uppercase tracking-wider mb-1.5"
-                  style={{ color: '#8A84A3' }}
+                <div
+                  style={{
+                    fontSize: 11,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    color: C.textMuted,
+                    marginBottom: 6,
+                  }}
                 >
-                  Group Name
-                </label>
+                  Group name
+                </div>
                 <input
                   type="text"
                   value={groupName}
                   onChange={(e) => setGroupName(e.target.value)}
                   placeholder="Enter group name"
                   maxLength={50}
-                  className="w-full px-3 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  style={{
-                    background: '#15102b',
-                    border: '1px solid #362A60',
-                    color: '#ffffff',
-                  }}
                   autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                    color: C.text,
+                    fontSize: 14,
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
                 />
               </div>
 
               <div>
-                <label
-                  className="block text-xs uppercase tracking-wider mb-1.5"
-                  style={{ color: '#8A84A3' }}
+                <div
+                  style={{
+                    fontSize: 11,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    color: C.textMuted,
+                    marginBottom: 6,
+                  }}
                 >
-                  Description <span className="opacity-60 normal-case tracking-normal">(optional)</span>
-                </label>
+                  Description <span style={{ opacity: 0.6 }}>(optional)</span>
+                </div>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What's this group about?"
                   maxLength={200}
                   rows={3}
-                  className="w-full px-3 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
                   style={{
-                    background: '#15102b',
-                    border: '1px solid #362A60',
-                    color: '#ffffff',
+                    width: '100%',
+                    padding: '12px 14px',
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                    color: C.text,
+                    fontSize: 14,
+                    outline: 'none',
+                    resize: 'none',
+                    boxSizing: 'border-box',
+                    fontFamily: 'inherit',
                   }}
                 />
               </div>
 
               {error && (
                 <div
-                  className="px-3 py-2.5 rounded-lg text-sm"
-                  style={{ background: '#15102b', border: '1px solid #362A60', color: '#c4a8ff' }}
+                  style={{
+                    padding: '10px 12px',
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
+                    color: C.textAccent,
+                    borderRadius: 10,
+                    fontSize: 13,
+                  }}
                 >
                   {error}
                 </div>
@@ -154,64 +222,95 @@ export default function CreateGroupModal({ show, onClose, onGroupCreated }) {
               <button
                 type="submit"
                 disabled={loading || !groupName.trim()}
-                className="w-full py-3 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: '#9668F5', color: '#ffffff' }}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  background: C.accent,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: loading || !groupName.trim() ? 'not-allowed' : 'pointer',
+                  opacity: loading || !groupName.trim() ? 0.55 : 1,
+                  marginTop: 4,
+                }}
               >
                 {loading ? 'Creating...' : 'Create Group'}
               </button>
             </form>
-          )}
-
-          {stage === 'share' && (
-            <div className="space-y-5 text-center">
-              <p className="text-sm" style={{ color: '#8A84A3' }}>
+          ) : (
+            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <p style={{ color: C.textMuted, fontSize: 14, margin: 0 }}>
                 Share the QR code or link to invite people to your group
               </p>
 
-              <div className="flex justify-center">
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
                 {qrData?.qrCode ? (
                   <img
                     src={qrData.qrCode}
                     alt="Group invite QR code"
-                    className="w-48 h-48 rounded-xl"
-                    style={{ background: '#ffffff', padding: 8, border: '1px solid #362A60' }}
+                    style={{
+                      width: 192,
+                      height: 192,
+                      borderRadius: 12,
+                      background: '#fff',
+                      padding: 8,
+                      border: `1px solid ${C.border}`,
+                    }}
                   />
                 ) : (
                   <div
-                    className="w-48 h-48 rounded-xl flex items-center justify-center"
-                    style={{ background: '#15102b', border: '1px solid #362A60' }}
+                    style={{
+                      width: 192,
+                      height: 192,
+                      borderRadius: 12,
+                      background: C.surface,
+                      border: `1px solid ${C.border}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: C.textMuted,
+                      fontSize: 13,
+                    }}
                   >
-                    <span className="text-sm" style={{ color: '#8A84A3' }}>
-                      QR unavailable
-                    </span>
+                    QR unavailable
                   </div>
                 )}
               </div>
 
               <button
                 onClick={handleCopyLink}
-                className="w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors"
+                disabled={!qrData?.inviteLink}
                 style={{
-                  background: '#15102b',
-                  border: '1px solid #362A60',
-                  color: '#c4a8ff',
+                  width: '100%',
+                  padding: 14,
+                  background: C.surface,
+                  color: C.textAccent,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  opacity: qrData?.inviteLink ? 1 : 0.5,
                 }}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
-                </svg>
                 {copied ? 'Link copied!' : 'Copy invite link'}
               </button>
 
               <button
                 onClick={handleGoToChat}
-                className="w-full py-3 rounded-lg text-sm font-semibold transition-colors"
-                style={{ background: '#9668F5', color: '#ffffff' }}
+                style={{
+                  width: '100%',
+                  padding: 14,
+                  background: C.accent,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
               >
                 Go to Group Chat
               </button>

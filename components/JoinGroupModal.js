@@ -1,14 +1,27 @@
+'use client';
+
 import { useState, useEffect } from 'react';
 import { previewGroupByCode, joinGroupByCode } from '@/lib/api';
 
+const C = {
+  overlay: 'rgba(6, 4, 15, 0.72)',
+  sheet: '#0d0b1a',
+  surface: '#15102b',
+  border: '#362A60',
+  accent: '#9668F5',
+  accentHover: '#6E4FEF',
+  text: '#ffffff',
+  textMuted: '#8A84A3',
+  textAccent: '#c4a8ff',
+};
+
 export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
-  const [joinMethod, setJoinMethod] = useState('code'); // 'code' | 'qr'
+  const [joinMethod, setJoinMethod] = useState('code');
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [groupPreview, setGroupPreview] = useState(null);
 
-  // Auto-validate code with debounce
   useEffect(() => {
     if (!show) return;
     if (!inviteCode.trim()) {
@@ -23,11 +36,8 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
         const preview = await previewGroupByCode(inviteCode);
         setGroupPreview(preview);
       } catch (err) {
-        if (err.message?.includes('404')) {
-          setError('Invalid invite code. Please check and try again.');
-        } else {
-          setError('Failed to load group preview. Please try again.');
-        }
+        if (err.message?.includes('404')) setError('Invalid invite code.');
+        else setError('Failed to load group preview.');
         setGroupPreview(null);
       } finally {
         setLoading(false);
@@ -36,7 +46,6 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
     return () => clearTimeout(timer);
   }, [inviteCode, show]);
 
-  // Reset on close
   useEffect(() => {
     if (!show) {
       setInviteCode('');
@@ -47,37 +56,28 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
     }
   }, [show]);
 
-  const handleCodeChange = (e) => {
-    setInviteCode(e.target.value.toUpperCase());
-  };
-
-  const joinGroup = async () => {
+  const join = async () => {
     if (!groupPreview || !inviteCode) return;
     setLoading(true);
     setError('');
     try {
-      const conversation = await joinGroupByCode(inviteCode);
-      const newConversation = {
-        id: conversation.id,
-        name: conversation.name,
-        type: conversation.type,
-        avatar: conversation.avatar || '👥',
-        lastMessage: conversation.lastMessage || 'Welcome to the group!',
-        lastTime: conversation.lastTime || new Date().toISOString(),
+      const conv = await joinGroupByCode(inviteCode);
+      onJoinGroup({
+        id: conv.id,
+        name: conv.name,
+        type: conv.type,
+        avatar: conv.avatar || '👥',
+        lastMessage: conv.lastMessage || 'Welcome to the group!',
+        lastTime: conv.lastTime || new Date().toISOString(),
         unread: 0,
         online: true,
-        participants: conversation.participants || 1,
-      };
-      onJoinGroup(newConversation);
+        participants: conv.participants || 1,
+      });
       onClose();
     } catch (err) {
-      if (err.message?.includes('409')) {
-        setError('You are already a member of this group.');
-      } else if (err.message?.includes('404')) {
-        setError('Group not found or invite code expired.');
-      } else {
-        setError('Failed to join group. Please try again.');
-      }
+      if (err.message?.includes('409')) setError('You are already a member of this group.');
+      else if (err.message?.includes('404')) setError('Group not found or invite expired.');
+      else setError('Failed to join group.');
     } finally {
       setLoading(false);
     }
@@ -87,46 +87,74 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center"
-      style={{ background: 'rgba(6, 4, 15, 0.7)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        background: C.overlay,
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full md:max-w-md flex flex-col rounded-t-2xl md:rounded-2xl overflow-hidden shadow-2xl"
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl"
         style={{
-          background: '#0d0b1a',
-          border: '1px solid #362A60',
-          height: '100dvh',
-          maxHeight: '92dvh',
+          background: C.sheet,
+          border: `1px solid ${C.border}`,
+          height: '100vh',
+          maxHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 -10px 40px rgba(0,0,0,0.5)',
         }}
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-4 py-3 shrink-0"
-          style={{ borderBottom: '1px solid #362A60' }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '14px 16px',
+            borderBottom: `1px solid ${C.border}`,
+            flexShrink: 0,
+          }}
         >
-          <h2 className="text-base font-semibold" style={{ color: '#ffffff' }}>
-            Join Group
-          </h2>
+          <h2 style={{ color: C.text, fontSize: 16, fontWeight: 600, margin: 0 }}>Join Group</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full"
-            style={{ color: '#8A84A3' }}
             aria-label="Close"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: C.textMuted,
+              padding: 6,
+              cursor: 'pointer',
+            }}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Method pills */}
-        <div className="px-4 pt-3 pb-2 shrink-0">
-          <div className="text-[10px] uppercase tracking-wider mb-1.5" style={{ color: '#8A84A3' }}>
-            How will you join?
-          </div>
-          <div className="flex gap-2">
+        <div style={{ padding: '12px 16px 8px', flexShrink: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              padding: 4,
+              borderRadius: 12,
+              background: C.surface,
+              border: `1px solid ${C.border}`,
+            }}
+          >
             {[
               { key: 'code', label: 'Enter Code' },
               { key: 'qr', label: 'Scan QR' },
@@ -136,11 +164,17 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
                 <button
                   key={tab.key}
                   onClick={() => setJoinMethod(tab.key)}
-                  className="flex-1 py-2 text-xs font-semibold rounded-full transition-colors"
                   style={{
-                    background: active ? '#9668F5' : '#15102b',
-                    color: active ? '#ffffff' : '#c4a8ff',
-                    border: active ? '1px solid #9668F5' : '1px solid #362A60',
+                    flex: 1,
+                    minHeight: 36,
+                    padding: '8px 10px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    background: active ? C.accent : 'transparent',
+                    color: active ? '#fff' : C.textAccent,
+                    border: 'none',
+                    cursor: 'pointer',
                   }}
                 >
                   {tab.label}
@@ -150,43 +184,72 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
           </div>
         </div>
 
-        {/* Scrollable body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-5">
+        {/* Body */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 16px 20px' }}>
           {joinMethod === 'code' ? (
-            <div className="pt-2">
-              <label className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: '#8A84A3' }}>
-                Group Invite Code
-              </label>
+            <div>
+              <div
+                style={{
+                  fontSize: 11,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  color: C.textMuted,
+                  marginTop: 8,
+                  marginBottom: 6,
+                }}
+              >
+                Group invite code
+              </div>
               <input
                 type="text"
                 placeholder="e.g. KGGENERAL2024"
                 value={inviteCode}
-                onChange={handleCodeChange}
-                className="w-full px-4 py-3 rounded-lg text-center font-mono text-base tracking-wider focus:outline-none focus:ring-2 focus:ring-violet-500 uppercase"
-                style={{
-                  background: '#15102b',
-                  border: '1px solid #362A60',
-                  color: '#ffffff',
-                }}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                 autoFocus
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  background: C.surface,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 10,
+                  color: C.text,
+                  fontSize: 16,
+                  textAlign: 'center',
+                  letterSpacing: '0.15em',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  textTransform: 'uppercase',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
               />
 
               {loading && !groupPreview && (
-                <div className="flex items-center justify-center py-8">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 28 }}>
                   <div
-                    className="animate-spin rounded-full h-7 w-7 border-2"
-                    style={{ borderColor: '#362A60', borderTopColor: '#9668F5' }}
+                    style={{
+                      width: 26,
+                      height: 26,
+                      border: `2px solid ${C.border}`,
+                      borderTopColor: C.accent,
+                      borderRadius: '50%',
+                      animation: 'spin 0.8s linear infinite',
+                    }}
                   />
-                  <span className="ml-3 text-sm" style={{ color: '#8A84A3' }}>
-                    Validating code...
-                  </span>
+                  <span style={{ marginLeft: 12, fontSize: 14, color: C.textMuted }}>Validating...</span>
                 </div>
               )}
 
               {error && (
                 <div
-                  className="mt-4 px-3 py-2.5 rounded-lg text-sm"
-                  style={{ background: '#15102b', border: '1px solid #362A60', color: '#c4a8ff' }}
+                  style={{
+                    marginTop: 14,
+                    padding: '10px 12px',
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
+                    color: C.textAccent,
+                    borderRadius: 10,
+                    fontSize: 13,
+                  }}
                 >
                   {error}
                 </div>
@@ -194,29 +257,65 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
 
               {groupPreview && (
                 <div
-                  className="mt-4 p-4 rounded-xl"
-                  style={{ background: '#15102b', border: '1px solid #362A60' }}
+                  style={{
+                    marginTop: 14,
+                    padding: 14,
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 12,
+                    display: 'flex',
+                    gap: 12,
+                    alignItems: 'center',
+                  }}
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-14 h-14 rounded-full flex items-center justify-center text-white text-2xl shrink-0"
-                      style={{ background: 'linear-gradient(135deg, #6E4FEF, #9668F5)' }}
+                  <div
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      fontSize: 22,
+                      background: `linear-gradient(135deg, ${C.accentHover}, ${C.accent})`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {groupPreview.avatar || '👥'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3
+                      style={{
+                        color: C.text,
+                        fontWeight: 600,
+                        fontSize: 14,
+                        margin: 0,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
                     >
-                      {groupPreview.avatar || '👥'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-sm truncate" style={{ color: '#ffffff' }}>
-                        {groupPreview.name}
-                      </h3>
-                      {groupPreview.description && (
-                        <p className="text-xs mb-1 line-clamp-2" style={{ color: '#8A84A3' }}>
-                          {groupPreview.description}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-3 text-[11px]" style={{ color: '#8A84A3' }}>
-                        <span>👥 {groupPreview.memberCount} members</span>
-                        <span>{groupPreview.isPublic ? '🌍 Public' : '🔒 Private'}</span>
-                      </div>
+                      {groupPreview.name}
+                    </h3>
+                    {groupPreview.description && (
+                      <p
+                        style={{
+                          color: C.textMuted,
+                          fontSize: 12,
+                          margin: '4px 0',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {groupPreview.description}
+                      </p>
+                    )}
+                    <div style={{ color: C.textMuted, fontSize: 11, display: 'flex', gap: 12 }}>
+                      <span>👥 {groupPreview.memberCount} members</span>
+                      <span>{groupPreview.isPublic ? '🌍 Public' : '🔒 Private'}</span>
                     </div>
                   </div>
                 </div>
@@ -224,10 +323,21 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
 
               {groupPreview && (
                 <button
-                  onClick={joinGroup}
+                  onClick={join}
                   disabled={loading}
-                  className="w-full mt-4 py-3 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-                  style={{ background: '#9668F5', color: '#ffffff' }}
+                  style={{
+                    width: '100%',
+                    marginTop: 14,
+                    padding: '14px',
+                    background: C.accent,
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 10,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    opacity: loading ? 0.6 : 1,
+                  }}
                 >
                   {loading ? 'Joining...' : 'Join Group'}
                 </button>
@@ -235,50 +345,87 @@ export default function JoinGroupModal({ show, onClose, onJoinGroup }) {
 
               {!inviteCode && !groupPreview && !error && (
                 <div
-                  className="mt-5 p-3 rounded-lg"
-                  style={{ background: '#15102b', border: '1px solid #362A60' }}
+                  style={{
+                    marginTop: 18,
+                    padding: 12,
+                    background: C.surface,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                  }}
                 >
-                  <h4 className="text-xs font-semibold mb-1.5" style={{ color: '#c4a8ff' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.textAccent, marginBottom: 6 }}>
                     How to join a group
-                  </h4>
-                  <ul className="text-xs space-y-1" style={{ color: '#8A84A3' }}>
-                    <li>• Ask a group member for the invite code</li>
-                    <li>• Scan a QR code shared by group admins</li>
-                    <li>• Follow an invite link sent to you</li>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16, color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>
+                    <li>Ask a group member for the invite code</li>
+                    <li>Scan a QR code shared by group admins</li>
+                    <li>Follow an invite link sent to you</li>
                   </ul>
                 </div>
               )}
             </div>
           ) : (
-            <div className="text-center pt-4">
+            <div style={{ textAlign: 'center', paddingTop: 16 }}>
               <div
-                className="w-44 h-44 mx-auto mb-5 rounded-xl flex items-center justify-center"
-                style={{ background: '#15102b', border: '1px dashed #362A60' }}
+                style={{
+                  width: 176,
+                  height: 176,
+                  margin: '0 auto 18px',
+                  borderRadius: 12,
+                  background: C.surface,
+                  border: `1px dashed ${C.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                }}
               >
-                <div>
-                  <div className="text-5xl mb-2">📸</div>
-                  <p className="text-xs" style={{ color: '#8A84A3' }}>
-                    Camera view appears here
-                  </p>
-                </div>
+                <div style={{ fontSize: 44 }}>📸</div>
+                <p style={{ fontSize: 12, color: C.textMuted, marginTop: 8 }}>
+                  Camera view appears here
+                </p>
               </div>
               <button
                 onClick={() => alert('QR Scanner would open here!')}
-                className="w-full py-3 rounded-lg text-sm font-semibold mb-3"
-                style={{ background: '#9668F5', color: '#ffffff' }}
+                style={{
+                  width: '100%',
+                  padding: 14,
+                  background: C.accent,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  marginBottom: 10,
+                }}
               >
                 Start QR Scanner
               </button>
               <button
                 onClick={() => setJoinMethod('code')}
-                className="text-sm font-medium"
-                style={{ color: '#c4a8ff' }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: C.textAccent,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
               >
                 or enter code manually
               </button>
             </div>
           )}
         </div>
+
+        <style jsx>{`
+          @keyframes spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        `}</style>
       </div>
     </div>
   );
