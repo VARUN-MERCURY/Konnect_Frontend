@@ -83,6 +83,7 @@ export default function ChatPage() {
   const typingTimeoutRef = useRef(null);
   const prevChatIdRef = useRef(null);
   const inputRef = useRef(null);
+  const lastSendRef = useRef(0);
   const [flying, setFlying] = useState([]); // [{ id, text, fromRect, toRect }]
   // Increment to trigger a meteor-shower burst in StarsBackground
   const [meteorKey, setMeteorKey] = useState(0);
@@ -585,6 +586,11 @@ export default function ChatPage() {
     e.preventDefault();
     const text = messageInput.trim();
     if (!text || !connected || !selectedChat) return;
+
+    // Guard against rapid double-fires (Enter+click, mobile touch repeats, etc.)
+    const now = Date.now();
+    if (lastSendRef.current && now - lastSendRef.current < 400) return;
+    lastSendRef.current = now;
 
     sendMessage(selectedChat.id, text);
     setMessageInput('');
