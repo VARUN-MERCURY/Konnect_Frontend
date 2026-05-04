@@ -20,14 +20,14 @@ const STATUS_COLORS = {
   auto_lock: { bg: '#450a0a', border: '#991b1b', text: '#f87171', label: 'Auto-Locked' },
 };
 
-const MOOD_EMOJI = { positive: '😊', negative: '😠', neutral: '😐', mixed: '🤔' };
+const MOOD_ICON = { positive: 'mood-up', negative: 'mood-down', neutral: 'mood-flat', mixed: 'mood-mix' };
 
 const ACTION_META = {
-  lock:    { icon: '🔒', label: 'Locked',   color: '#f87171', bg: '#3f1d1d' },
-  unlock:  { icon: '🔓', label: 'Unlocked', color: '#4ade80', bg: '#0f3322' },
-  reset:   { icon: '🔄', label: 'Reset',    color: '#c4a8ff', bg: '#231a47' },
-  export:  { icon: '📤', label: 'Exported', color: '#8A84A3', bg: '#1a162e' },
-  flagged: { icon: '🚩', label: 'Flagged',  color: '#facc15', bg: '#3a2e0a' },
+  lock:    { icon: 'lock',    label: 'Locked',   color: '#f87171', bg: '#3f1d1d' },
+  unlock:  { icon: 'unlock',  label: 'Unlocked', color: '#4ade80', bg: '#0f3322' },
+  reset:   { icon: 'reset',   label: 'Reset',    color: '#c4a8ff', bg: '#231a47' },
+  export:  { icon: 'export',  label: 'Exported', color: '#c4a8ff', bg: '#1a162e' },
+  flagged: { icon: 'flagged', label: 'Flagged',  color: '#facc15', bg: '#3a2e0a' },
 };
 
 const RANGE_OPTIONS = [
@@ -292,15 +292,29 @@ export default function ModerationDashboard({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative"
+                 style={{
+                   background: 'linear-gradient(135deg, #6E4FEF 0%, #9668F5 100%)',
+                   boxShadow: '0 4px 14px -2px rgba(110,79,239,0.45), inset 0 1px 0 rgba(255,255,255,0.18)',
+                 }}>
+              <Icon name="shield" size={20} color="#ffffff" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full"
+                    style={{
+                      background: locked ? '#ef4444' : '#22c55e',
+                      border: '2px solid #06040f',
+                      boxShadow: locked ? '0 0 6px #ef4444' : '0 0 6px #22c55e',
+                    }} />
+            </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold truncate" style={{ color: '#ffffff' }}>Moderation Dashboard</h2>
-              <p className="text-sm truncate" style={{ color: '#c4a8ff' }}>{groupName}</p>
+              <h2 className="text-lg font-semibold truncate" style={{ color: '#ffffff' }}>Moderation</h2>
+              <p className="text-xs truncate" style={{ color: '#c4a8ff' }}>{groupName}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-xs px-3 py-1.5 rounded-full font-medium"
+            <span className="text-xs px-3 py-1.5 rounded-full font-medium inline-flex items-center gap-1.5"
                   style={{ background: locked ? '#7f1d1d' : '#15102b', color: locked ? '#fca5a5' : '#c4a8ff', border: `1px solid ${locked ? '#991b1b' : '#362A60'}` }}>
-              {locked ? '🔒 Locked' : '🟢 Active'}
+              <Icon name={locked ? 'lock' : 'pulse'} size={12} />
+              {locked ? 'Locked' : 'Active'}
             </span>
           </div>
         </div>
@@ -308,13 +322,14 @@ export default function ModerationDashboard({
         {/* Tabs */}
         <div className="flex border-b px-4 md:px-8 overflow-x-auto" style={{ borderColor: '#362A60' }}>
           {[
-            { id: 'overview', label: '📊 Overview' },
-            { id: 'toxic',    label: '🔥 Top Toxic' },
-            { id: 'history',  label: '📜 History' },
+            { id: 'overview', label: 'Overview',   icon: 'grid'  },
+            { id: 'toxic',    label: 'Top Toxic',  icon: 'flame' },
+            { id: 'history',  label: 'History',    icon: 'scroll'},
           ].map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className="py-3 px-4 md:px-5 text-sm font-medium transition-colors relative whitespace-nowrap"
+              className="py-3 px-4 md:px-5 text-sm font-medium transition-colors relative whitespace-nowrap inline-flex items-center gap-2"
               style={{ color: tab === t.id ? '#9668F5' : '#8A84A3' }}>
+              <Icon name={t.icon} size={15} />
               {t.label}
               {tab === t.id && (
                 <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5"
@@ -353,7 +368,11 @@ export default function ModerationDashboard({
               <div className="rounded-xl p-4 flex items-center justify-between"
                    style={{ background: statusInfo.bg, border: `1px solid ${statusInfo.border}` }}>
                 <div className="flex items-center space-x-3">
-                  <span className="text-2xl">{locked ? '🔒' : MOOD_EMOJI[stats?.mood] || '😐'}</span>
+                  <span className="w-9 h-9 rounded-lg flex items-center justify-center"
+                        style={{ background: '#1a1535', border: `1px solid ${statusInfo.border}` }}>
+                    <Icon name={locked ? 'lock' : (MOOD_ICON[stats?.mood] || 'mood-flat')}
+                          size={18} color={statusInfo.text} />
+                  </span>
                   <div>
                     <p className="font-semibold" style={{ color: statusInfo.text }}>{locked ? 'Group Locked' : statusInfo.label}</p>
                     <p className="text-xs" style={{ color: '#8A84A3' }}>Mood: {stats?.mood || 'unknown'}</p>
@@ -394,14 +413,14 @@ export default function ModerationDashboard({
                 <h3 className="text-sm font-semibold mb-3" style={{ color: '#ffffff' }}>Manual Controls</h3>
                 <div className="flex flex-wrap gap-3">
                   {locked ? (
-                    <ActionButton label="🔓 Unlock Group" onClick={handleUnlock}
+                    <ActionButton label="Unlock Group" icon="unlock" onClick={handleUnlock}
                       loading={actionLoading === 'unlock'} bg="#166534" />
                   ) : (
-                    <ActionButton label="🔒 Lock Group" onClick={handleLock}
+                    <ActionButton label="Lock Group" icon="lock" onClick={handleLock}
                       loading={actionLoading === 'lock'} bg="#991b1b" />
                   )}
                   {isAdmin && (
-                    <ActionButton label="🔄 Reset Window" onClick={handleReset}
+                    <ActionButton label="Reset Window" icon="reset" onClick={handleReset}
                       loading={actionLoading === 'reset'} bg="#6b21a8" />
                   )}
                 </div>
@@ -472,7 +491,10 @@ function TopToxicTab({ data, loading, range, setRange, onExport, exporting }) {
         </div>
       ) : users.length === 0 ? (
         <div className="rounded-xl p-8 text-center" style={{ background: '#15102b', border: '1px solid #362A60' }}>
-          <p className="text-3xl mb-2">🌿</p>
+          <div className="mb-3 inline-flex items-center justify-center w-12 h-12 rounded-xl"
+               style={{ background: '#1a1535', border: '1px solid #362A60' }}>
+            <Icon name="leaf" size={22} color="#9668F5" />
+          </div>
           <p style={{ color: '#c4a8ff' }}>No flagged behavior detected.</p>
           <p className="text-xs mt-1" style={{ color: '#8A84A3' }}>The group is clean for this window.</p>
         </div>
@@ -544,7 +566,10 @@ function HistoryTab({ groups, hasMore, loading, onLoadMore, onExport, exporting,
 
       {groups.length === 0 ? (
         <div className="rounded-xl p-8 text-center" style={{ background: '#15102b', border: '1px solid #362A60' }}>
-          <p className="text-3xl mb-2">📭</p>
+          <div className="mb-3 inline-flex items-center justify-center w-12 h-12 rounded-xl"
+               style={{ background: '#1a1535', border: '1px solid #362A60' }}>
+            <Icon name="inbox" size={22} color="#9668F5" />
+          </div>
           <p style={{ color: '#c4a8ff' }}>No moderation events yet.</p>
         </div>
       ) : (
@@ -580,7 +605,7 @@ function HistoryTab({ groups, hasMore, loading, onLoadMore, onExport, exporting,
 
 function HistoryEntry({ entry }) {
   const [expanded, setExpanded] = useState(false);
-  const meta = ACTION_META[entry.action] || { icon: '•', label: entry.action, color: '#c4a8ff', bg: '#15102b' };
+  const meta = ACTION_META[entry.action] || { icon: 'dot', label: entry.action, color: '#c4a8ff', bg: '#15102b' };
   const actorName = entry.actorId?.name || entry.actorId?.username
     || (entry.triggeredBy === 'auto' ? 'System' : '—');
   const score = typeof entry.moderationScore === 'number' ? Math.round(entry.moderationScore * 100) : null;
@@ -595,9 +620,9 @@ function HistoryEntry({ entry }) {
         cursor: entry.metadata ? 'pointer' : 'default',
       }}
     >
-      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-lg"
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
            style={{ background: meta.bg, border: `1px solid ${meta.color}33` }}>
-        {meta.icon}
+        <Icon name={meta.icon} size={16} color={meta.color} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -651,17 +676,22 @@ function StatCard({ label, value, color }) {
   );
 }
 
-function ActionButton({ label, onClick, loading, bg }) {
+function ActionButton({ label, icon, onClick, loading, bg }) {
   return (
     <button onClick={onClick} disabled={loading}
-      className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+      className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 inline-flex items-center gap-2"
       style={{ background: bg, color: '#fff' }}>
       {loading ? (
-        <span className="flex items-center gap-2">
+        <>
           <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
           Working...
-        </span>
-      ) : label}
+        </>
+      ) : (
+        <>
+          {icon && <Icon name={icon} size={14} />}
+          {label}
+        </>
+      )}
     </button>
   );
 }
@@ -669,14 +699,73 @@ function ActionButton({ label, onClick, loading, bg }) {
 function ExportButton({ onClick, disabled, loading, label = 'Export CSV' }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 flex items-center gap-1.5"
+      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
       style={{ background: '#15102b', color: '#c4a8ff', border: '1px solid #362A60' }}>
       {loading ? (
         <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
       ) : (
-        <span>⬇</span>
+        <Icon name="download" size={13} />
       )}
       {label}
     </button>
   );
+}
+
+// =================== Icon ===================
+//
+// Single inline-SVG icon set tuned for the Konnect palette. Uses currentColor
+// where the parent sets `color`, and `stroke` linecaps that match the rest of
+// the brand (round, 1.75 weight). Keeping it self-contained avoids pulling in
+// a 30 KB icon library for ~12 glyphs.
+//
+function Icon({ name, size = 16, color }) {
+  const props = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: color || 'currentColor',
+    strokeWidth: 1.75,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    style: { display: 'inline-block', flexShrink: 0 },
+  };
+  switch (name) {
+    case 'lock':
+      return (<svg {...props}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /><circle cx="12" cy="16" r="1.4" fill={color || 'currentColor'} stroke="none" /></svg>);
+    case 'unlock':
+      return (<svg {...props}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" /><circle cx="12" cy="16" r="1.4" fill={color || 'currentColor'} stroke="none" /></svg>);
+    case 'reset':
+      return (<svg {...props}><path d="M4 12a8 8 0 0 1 14-5.3L20 9" /><path d="M20 4v5h-5" /><path d="M20 12a8 8 0 0 1-14 5.3L4 15" /><path d="M4 20v-5h5" /></svg>);
+    case 'export':
+    case 'download':
+      return (<svg {...props}><path d="M12 4v11" /><path d="M7 11l5 5 5-5" /><path d="M5 20h14" /></svg>);
+    case 'flagged':
+      return (<svg {...props}><path d="M5 21V4" /><path d="M5 5h11l-2 4 2 4H5" /></svg>);
+    case 'pulse':
+      return (<svg {...props}><path d="M3 12h4l2-6 4 12 2-6h6" /></svg>);
+    case 'grid':
+      return (<svg {...props}><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>);
+    case 'flame':
+      return (<svg {...props}><path d="M12 2.5c1.5 3 4 4.5 4 8a4 4 0 1 1-8 0c0-1.5.7-2.5 1.5-3 .3 1.2 1.2 1.7 2 1.7C12 8 10.5 5.5 12 2.5z" /><path d="M9.5 18.5c.5 1.2 1.5 2 2.5 2s2-.8 2.5-2" /></svg>);
+    case 'scroll':
+      return (<svg {...props}><path d="M6 4h11a2 2 0 0 1 2 2v11a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V6a2 2 0 0 1 2-2z" /><path d="M9 9h7M9 13h7M9 17h4" /></svg>);
+    case 'leaf':
+      return (<svg {...props}><path d="M5 19c0-7 5-13 14-14-1 9-7 14-14 14z" /><path d="M5 19c3-3 6-5 10-7" /></svg>);
+    case 'inbox':
+      return (<svg {...props}><path d="M4 13l2-7h12l2 7" /><path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" /><path d="M4 13h4l1 2h6l1-2h4" /></svg>);
+    case 'shield':
+      return (<svg {...props}><path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6l8-3z" /><path d="M9 12l2 2 4-4" /></svg>);
+    case 'mood-up':
+      return (<svg {...props}><circle cx="12" cy="12" r="9" /><path d="M8 14c1 1.5 2.5 2.5 4 2.5s3-1 4-2.5" /><circle cx="9" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /><circle cx="15" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /></svg>);
+    case 'mood-down':
+      return (<svg {...props}><circle cx="12" cy="12" r="9" /><path d="M8 16c1-1.5 2.5-2.5 4-2.5s3 1 4 2.5" /><circle cx="9" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /><circle cx="15" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /></svg>);
+    case 'mood-flat':
+      return (<svg {...props}><circle cx="12" cy="12" r="9" /><path d="M8 15h8" /><circle cx="9" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /><circle cx="15" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /></svg>);
+    case 'mood-mix':
+      return (<svg {...props}><circle cx="12" cy="12" r="9" /><path d="M8 15c1.3-.7 2.7-.7 4 0s2.7.7 4 0" /><circle cx="9" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /><circle cx="15" cy="10" r="0.9" fill={color || 'currentColor'} stroke="none" /></svg>);
+    case 'dot':
+    default:
+      return (<svg {...props}><circle cx="12" cy="12" r="3" fill={color || 'currentColor'} stroke="none" /></svg>);
+  }
 }
