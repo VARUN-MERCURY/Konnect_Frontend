@@ -15,6 +15,28 @@ import GroupInfoModal from '@/components/GroupInfoModal';
 import JoinGroupModal from '@/components/JoinGroupModal';
 import CreateGroupModal from '@/components/CreateGroupModal';
 
+// --- Utility: Render message content with clickable links ---
+function renderMessageContent(text) {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[\w.-]+(?:\.[\w\.-]+)+(?:[\w\-\._~:/?#[\]@!$&'()*+,;=]+)?)/gi;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (urlRegex.test(part)) {
+      return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline break-all">{part}</a>;
+    }
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
+
+// --- Toast for feature coming soon ---
+  const [featureToast, setFeatureToast] = useState("");
+  useEffect(() => {
+    if (featureToast) {
+      const t = setTimeout(() => setFeatureToast(""), 1800);
+      return () => clearTimeout(t);
+    }
+  }, [featureToast]);
+
 export default function ChatPage() {
   const router = useRouter();
   const { 
@@ -1181,7 +1203,7 @@ export default function ChatPage() {
             {selectedChat.isBanned ? (
               <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#06040f' }}>
                 <div className="text-center max-w-md px-6">
-                  <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6"
                        style={{ background: '#15102b' }}>
                     <span className="text-4xl">🚫</span>
                   </div>
@@ -1378,7 +1400,7 @@ export default function ChatPage() {
                               </button>
                             </div>
                           )}
-                          <div className="text-sm leading-relaxed">{message.content}</div>
+                          <div className="text-sm leading-relaxed">{renderMessageContent(message.content)}</div>
                           <div className="flex items-center justify-end space-x-1 mt-1 text-xs"
                                style={{ color: isMyMessage ? 'rgba(255,255,255,0.6)' : '#8A84A3' }}>
                             <span>{formatMessageTime(message.timestamp || message.createdAt)}</span>
@@ -1586,6 +1608,14 @@ export default function ChatPage() {
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-lg text-sm font-medium animate-fade-in"
              style={{ background: '#15102b', border: '1px solid #362A60', color: '#ffffff' }}>
           {moderationToast}
+        </div>
+      )}
+
+      {/* Feature Coming Soon Toast */}
+      {featureToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-xl shadow-lg text-sm font-medium animate-fade-in"
+             style={{ background: '#15102b', border: '1px solid #362A60', color: '#ffffff' }}>
+          {featureToast}
         </div>
       )}
 
