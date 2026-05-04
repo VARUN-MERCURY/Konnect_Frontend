@@ -1172,51 +1172,7 @@ export default function ChatPage() {
                       </svg>
                     </button>
                   )}
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowGroupMenu(prev => !prev)}
-                      className="p-2 rounded-full transition-colors hover:bg-[#1c1538]"
-                    >
-                      <svg className="w-5 h-5" style={{ color: '#8A84A3' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                      </svg>
-                    </button>
-                    {showGroupMenu && (
-                      <div className="absolute right-0 top-10 w-48 rounded-xl shadow-lg border py-1 z-50"
-                           style={{ background: '#0d0b1a', borderColor: '#362A60' }}>
-                        {selectedChat.type === 'group' && !selectedChat.isBanned && (
-                          <button
-                            onClick={async () => {
-                              setShowGroupMenu(false);
-                              if (!confirm('Leave this group?')) return;
-                              try {
-                                await leaveGroup(selectedChat.id);
-                                setConversations(prev => prev.filter(c => c.id !== selectedChat.id));
-                                setSelectedChat(null);
-                              } catch (err) {
-                                console.error('Error leaving group:', err);
-                              }
-                            }}
-                            className="w-full text-left px-4 py-2 text-sm hover:bg-[#15102b] transition-colors"
-                            style={{ color: '#f87171' }}
-                          >
-                            🚪 Leave Group
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setShowGroupMenu(false);
-                            setConversations(prev => prev.filter(c => c.id !== selectedChat.id));
-                            setSelectedChat(null);
-                          }}
-                          className="w-full text-left px-4 py-2 text-sm hover:bg-[#15102b] transition-colors"
-                          style={{ color: '#f87171' }}
-                        >
-                          🗑️ Delete Chat
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  {/* three-dots menu removed */}
                 </div>
               </div>
             </div>
