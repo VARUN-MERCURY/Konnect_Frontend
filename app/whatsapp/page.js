@@ -1642,6 +1642,7 @@ export default function ChatPage() {
             userRole={selectedChat.userRole}
             sentiment={groupSentiment[selectedChat.id]}
             locked={!!groupLocked[selectedChat.id]}
+            moderationAlert={moderationAlert}
             onClose={() => setShowModerationDashboard(false)}
           />
         )}
